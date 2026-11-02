@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-feature
+        android:name="android.hardware.type.automotive"
+        android:required="true" />
+
+    <!-- Vehicle SDK: 기어(Gear) 조회 -->
+    <uses-permission android:name="pleos.car.permission.CAR_DRIVE" />
+    <!-- Vehicle SDK: 충전구·배터리(EvBattery) 조회 -->
+    <uses-permission android:name="pleos.car.permission.CAR_ENERGY" />
+    <!-- NaviHelper SDK: 현재 위치·목적지 정보 조회 (get*Info) -->
+    <uses-permission android:name="pleos.car.permission.NAVI_ROUTE" />
+    <!-- AAOS 차속 (부드러운 운전 칭찬). 런타임 권한 -->
+    <uses-permission android:name="android.car.permission.CAR_SPEED" />
+    <!-- 시동(부팅) 때 앱을 깨워 화면을 열지 않아도 주행을 기록 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".CarlingApplication"
+        android:allowBackup="true"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="landscape">
+            <!-- 주행 중에도 화면 유지 (주행 중에는 터치 없는 위젯만 보여줌).
+                 실제 배포 시 앱 카테고리별 주행 중 허용 범위 심사 대상. -->
+            <meta-data
+                android:name="distractionOptimized"
+                android:value="true" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name=".trip.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name=".trip.TripService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Records vehicle gear changes (drive start/end) so the in-car pet grows from daily drives without opening the app." />
+        </service>
+    </application>
+
+</manifest>

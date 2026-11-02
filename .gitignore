@@ -1,0 +1,15 @@
+*.iml
+.gradle/
+.kotlin/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/app/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+
+# 서명 키 — 절대 커밋하지 않는다 (분실하면 같은 앱으로 업데이트 불가, 따로 백업)
+/keystore/
+/keystore.properties

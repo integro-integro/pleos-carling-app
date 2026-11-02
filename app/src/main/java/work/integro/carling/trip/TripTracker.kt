@@ -1,0 +1,89 @@
+package work.integro.carling.trip
+
+import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import work.integro.carling.data.CarlingStore
+import work.integro.carling.data.TripResult
+import work.integro.carling.navi.NaviPlaces
+import work.integro.carling.vehicle.SpeedMonitor
+import work.integro.carling.vehicle.VehicleSignals
+import work.integro.carling.voice.Voice
+
+private const val TAG = "TripTracker"
+
+/**
+ * 기어 P→주행→P 를 '함께한 주행 한 번'으로 묶어 기록한다.
+ * 공식 시동 이벤트 API가 없어 기어 전환을 주행 시작/종료로 쓴다.
+ * 진행 중인 주행은 저장해 두므로, 주행 도중 프로세스가 정리됐다가 다시 떠도 이어서 기록한다.
+ * 충전 세션도 여기서 감지해 포만감을 채운다.
+ */
+class TripTracker(
+    private val scope: CoroutineScope,
+    private val vehicle: VehicleSignals,
+    private val speed: SpeedMonitor,
+    private val places: NaviPlaces,
+    private val store: CarlingStore,
+    private val voice: Voice,
+) {
+    fun start() {
+        scope.launch {
+            vehicle.state.map { it.connected to it.isDriving }.distinctUntilChanged().collect { (connected, driving) ->
+                if (!connected) return@collect
+                if (driving) onDriveStart() else onDriveEnd()
+            }
+        }
+        scope.launch {
+            vehicle.state.map { it.isCharging }.distinctUntilChanged().collect { charging ->
+                if (charging && store.data.hatched) {
+                    store.onCharging()
+                    store.data.personality?.let { say(it.mealLine) }
+                }
+            }
+        }
+    }
+
+    private suspend fun onDriveStart() {
+        speed.start()
+        if (store.data.activeTrip != null) {
+            // 주행 도중 앱이 다시 떴다 — 저장된 시작 시각으로 이어간다. 급조작 수는 이어 셀 수 없다.
+            Log.i(TAG, "진행 중 주행 복구")
+            return
+        }
+        speed.beginTrip()
+        store.beginTrip(store.clock.now(), vehicle.odometerKm())
+        store.data.personality?.let { say(it.drivingLine) }
+        Log.i(TAG, "주행 시작")
+    }
+
+    private suspend fun onDriveEnd() {
+        val trip = store.data.activeTrip ?: return
+        val end = store.clock.now()
+        val distance = vehicle.odometerKm()?.let { now -> trip.startOdometerKm?.let { (now - it).coerceAtLeast(0f) } }
+        val place = if (store.usesLocation) places.currentPlace() else null
+        store.clearActiveTrip()
+        store.recordTrip(
+            TripResult(
+                startMillis = trip.startMillis,
+                endMillis = end,
+                distanceKm = distance,
+                harshEvents = speed.harshEvents,
+                placeCell = place?.cell,
+                placeName = place?.name,
+            ),
+        )
+        speed.endTrip()
+        val report = store.data.pendingReport
+        val personality = store.data.personality
+        if (report != null && personality != null) {
+            say("${personality.arrivalLine} ${report.minutes}분 같이 달렸어요.")
+        }
+        Log.i(TAG, "주행 종료: ${(end - trip.startMillis) / 1000}s, place=${place != null}")
+    }
+
+    private fun say(text: String) {
+        if (store.data.voiceOn) voice.say(text)
+    }
+}
