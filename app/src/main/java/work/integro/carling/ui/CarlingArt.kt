@@ -69,14 +69,39 @@ private val TreeArts = listOf(
     CarlingArt(R.drawable.carling_tree_stage9, 1.2f, Offset(0.226f, 0.601f), 0.070f, Offset(0.393f, 0.84f), mirrored = true),
 )
 
-/** 해당 단계의 일러스트. 일러스트가 아직 없는 계열(물·흙)의 성장 2 이후면 null. */
+/** 성장 2부터의 물 계열 일러스트. 진화 2부터 물속을 헤엄치는 모습이라 그림자가 없다. */
+private val WaterArts = listOf(
+    CarlingArt(R.drawable.carling_water_stage2, 0.86f, Offset(0.478f, 0.661f), 0.141f, Offset(0.490f, 0.84f), Offset(0.486f, 0.490f), 0.331f),
+    CarlingArt(R.drawable.carling_water_stage3, 1.2f, Offset(0.459f, 0.721f), 0.096f, Offset(0.468f, 0.84f), Offset(0.470f, 0.589f), 0.247f),
+    CarlingArt(R.drawable.carling_water_stage4, 1.1f, Offset(0.364f, 0.699f), 0.110f, Offset(0.375f, 0.84f), Offset(0.375f, 0.560f), 0.263f),
+    CarlingArt(R.drawable.carling_water_stage5, 1.19f, Offset(0.407f, 0.721f), 0.093f, Offset(0.427f, 0.84f), Offset(0.407f, 0.605f), 0.215f),
+    CarlingArt(R.drawable.carling_water_stage6, 1.1f, Offset(0.493f, 0.678f), 0.079f, null, mirrored = true),
+    CarlingArt(R.drawable.carling_water_stage7, 1.1f, Offset(0.415f, 0.637f), 0.070f, null, mirrored = true),
+    CarlingArt(R.drawable.carling_water_stage8, 1.13f, Offset(0.319f, 0.624f), 0.070f, null, mirrored = true),
+    CarlingArt(R.drawable.carling_water_stage9, 1f, Offset(0.630f, 0.473f), 0.070f, null),
+)
+
+/** 성장 2부터의 흙 계열 일러스트. 진화 3 원본만 오른쪽을 보고 있어 뒤집지 않는다. */
+private val EarthArts = listOf(
+    CarlingArt(R.drawable.carling_earth_stage2, 0.86f, Offset(0.479f, 0.658f), 0.139f, Offset(0.487f, 0.84f), Offset(0.486f, 0.492f), 0.331f),
+    CarlingArt(R.drawable.carling_earth_stage3, 1.1f, Offset(0.475f, 0.657f), 0.121f, Offset(0.486f, 0.84f), Offset(0.486f, 0.515f), 0.287f),
+    CarlingArt(R.drawable.carling_earth_stage4, 1.14f, Offset(0.418f, 0.659f), 0.098f, Offset(0.438f, 0.84f), Offset(0.431f, 0.539f), 0.247f),
+    CarlingArt(R.drawable.carling_earth_stage5, 1.1f, Offset(0.349f, 0.579f), 0.097f, Offset(0.434f, 0.84f), Offset(0.375f, 0.498f), 0.239f),
+    CarlingArt(R.drawable.carling_earth_stage6, 1.1f, Offset(0.358f, 0.620f), 0.070f, Offset(0.457f, 0.84f), mirrored = true),
+    CarlingArt(R.drawable.carling_earth_stage7, 1.11f, Offset(0.335f, 0.593f), 0.070f, Offset(0.436f, 0.84f), mirrored = true),
+    CarlingArt(R.drawable.carling_earth_stage8, 1.14f, Offset(0.337f, 0.570f), 0.070f, Offset(0.374f, 0.84f), mirrored = true),
+    CarlingArt(R.drawable.carling_earth_stage9, 1.14f, Offset(0.466f, 0.529f), 0.070f, Offset(0.513f, 0.84f)),
+)
+
+/** 해당 단계의 일러스트. */
 internal fun carlingArt(stageIndex: Int, lineage: Lineage?): CarlingArt? {
     if (stageIndex < PearlArts.size) return PearlArts[stageIndex.coerceAtLeast(0)]
     val arts = when (lineage) {
         null, Lineage.WIND -> WindArts
         Lineage.LIGHT_RAY -> LightArts
         Lineage.TREE -> TreeArts
-        Lineage.WATER, Lineage.EARTH -> return null
+        Lineage.WATER -> WaterArts
+        Lineage.EARTH -> EarthArts
     }
     return arts.getOrNull(stageIndex - PearlArts.size)
 }

@@ -106,7 +106,7 @@ fun HomeScreen(
     val caption = @Composable {
         Column(Modifier.onScene(), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(name, fontSize = 42.sp, fontWeight = FontWeight.Bold, color = Ink)
-            Text(stageTitle(data), fontSize = 22.sp, color = Gold)
+            Text(GrowthRules.stageName(lookStage, lookLineage), fontSize = 22.sp, color = Gold)
         }
         Spacer(Modifier.height(14.dp))
         Speech(line)
@@ -221,7 +221,7 @@ private fun StatusPanel(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("D$dayNum", style = gameText(20.sp), color = Gold)
                 Spacer(Modifier.width(10.dp))
-                Text(data.stageSpec.label, style = gameText(20.sp))
+                Text(GrowthRules.stageName(cur, data.lineage), style = gameText(20.sp))
                 Spacer(Modifier.weight(1f))
                 data.lineage?.let { Text("${it.label} 계열", style = gameText(19.sp), color = Color(it.color)) }
                     ?: Text("계열 미정 (D14)", style = gameText(17.sp), color = Muted)
@@ -250,7 +250,7 @@ private fun StatusPanel(
                     val quest = if (n.evoIndex in data.doneQuests) "퀘스트✓" else "퀘스트"
                     " · $card · $quest"
                 } else ""
-                Text("다음 ${n.label}: D${n.day} · XP ${n.cumXp} · MP ${n.cumMp}$extra",
+                Text("다음 ${GrowthRules.stageName(n.index, data.lineage)}: D${n.day} · XP ${n.cumXp} · MP ${n.cumMp}$extra",
                     fontSize = 16.sp, color = Muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                 if (!GrowthRules.itemsUnlocked(data.reachedStage)) {
                     Text("🔒 성장 1이 되면 아이템이 열려요", fontSize = 16.sp, color = Gold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
@@ -308,11 +308,6 @@ private fun StatusPanel(
     }
 }
 
-private fun stageTitle(data: CarlingData): String {
-    val lineage = data.lineage
-    return if (lineage != null) "${lineage.label} ${data.stageSpec.label}" else data.stageSpec.label
-}
-
 /**
  * 튜토리얼(도움말) 내용 — 한곳에서 관리한다.
  * ⚠ 기능을 추가·변경하면 여기 항목도 함께 업데이트할 것.
@@ -326,7 +321,8 @@ private val tutorialSections: List<Triple<String, String, String>> = listOf(
     Triple("🗺", "지도", "지금 지도는 예시 화면이에요. 지역 버튼이나 +, −로 움직여 볼 수 있고, 내 트립 경로는 아직 표시되지 않아요."),
     Triple("🖼", "배경", "알이 깨어나면 도시·바닷가 해안·맑은 하늘·고요한 숲 중에서 고를 수 있어요. 낮과 밤은 차량 시계에 맞춰 저절로 바뀌어요."),
     Triple("🎁", "아이템", "성장 1이 되면 열려요. 고깔 모자·리본·왕관 중 하나를 골라 카링을 꾸며 보세요."),
-    Triple("🎨", "계열", "처음엔 진주색이에요. 운전 습관에 따라 D14에 계열(바람·빛·나무·물·흙)이 정해지면 몸 색과 외형이 바뀌어요."),
+    Triple("🎨", "계열", "처음엔 진주색 아기 키링이에요. 운전 습관에 따라 D14에 계열(바람·빛·나무·물·흙)이 정해지면 몸 색과 외형이 바뀌어요."),
+    Triple("🏷", "이름", "자랄 때마다 이름이 바뀌어요. 바람 계열이면 산들링, 나래링을 거쳐 하늘링 완전체가 돼요. 빛은 섬광링, 나무는 우듬지링, 물은 바다링, 흙은 질주링이 마지막 모습이에요."),
     Triple("✨", "진화", "D30·D90·D180에 진화카드를 받고 특별 퀘스트를 채우면 진화해요. 단계는 건너뛰지 않고, 자랄수록 모습이 크게 달라져요."),
     Triple("💗", "돌보기", "쓰다듬기·밥 주기·놀아주기·말 걸기로 교감해요 (하루 서로 다른 2가지 행동까지 XP)."),
     Triple("↩", "되돌아가기", "첫 만남 중에는 화면 왼쪽 위 '뒤로'로 이전 단계를 다시 볼 수 있어요."),
@@ -392,7 +388,7 @@ private fun DevPanel(store: CarlingStore, vehicle: VehicleState, modifier: Modif
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             val d = store.data
-            DebugLine("단계", "${d.stageSpec.label} (idx ${d.reachedStage})")
+            DebugLine("단계", "${GrowthRules.stageName(d.reachedStage, d.lineage)} · ${d.stageSpec.label} (idx ${d.reachedStage})")
             DebugLine("누적", "XP ${d.totalXp} · MP ${d.totalMp}")
             DebugLine("계열", d.lineage?.label ?: "미정")
             DebugLine("카드/퀘스트", "${d.ownedCards} / ${d.doneQuests}")

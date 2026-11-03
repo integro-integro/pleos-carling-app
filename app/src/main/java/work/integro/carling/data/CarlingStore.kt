@@ -399,7 +399,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
         val lineage = if (lineageWasNull && newStage >= 2) GrowthRules.dominantLineage(next.lineageScores) else before.lineage
         next = next.copy(reachedStage = newStage, lineage = lineage)
 
-        if (newStage > oldStage) highlights += "${GrowthRules.STAGES[newStage].label} 도달"
+        if (newStage > oldStage) highlights += "${GrowthRules.stageName(newStage, lineage)} 도달"
         if (lineageWasNull && lineage != null) highlights += "${lineage.label} 계열이 되었어요"
 
         val number = before.tripCount + 1

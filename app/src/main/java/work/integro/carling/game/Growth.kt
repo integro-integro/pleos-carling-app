@@ -92,6 +92,19 @@ object GrowthRules {
 
     val MAX_STAGE = STAGES.last().index
 
+    const val EGG_NAME = "젤리 알"
+
+    /** 화면에 보이는 단계 이름. 진화 1 전까지는 모든 계열이 아기 키링이고, 진화 1·2·3에서 계열 이름이 바뀐다. */
+    fun stageName(stageIndex: Int, lineage: Lineage?): String {
+        val names = (lineage ?: Lineage.WIND).names
+        return when {
+            stageIndex <= 2 -> "아기 키링 ${stageIndex + 1}단계"
+            stageIndex <= 5 -> "${names[0]} ${stageIndex - 2}단계"
+            stageIndex <= 8 -> "${names[1]} ${stageIndex - 5}단계"
+            else -> "${names[2]} 완전체"
+        }
+    }
+
     // ---- XP (성장 에너지) — 하루 최대 50 ----
     const val DAILY_XP_CAP = 50
     const val DRIVE_XP_CAP = 30

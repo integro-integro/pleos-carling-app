@@ -38,6 +38,23 @@ class GrowthRulesTest {
     }
 
     @Test
+    fun stageNamesFollowGrowthOrder() {
+        val wind = (0..9).map { GrowthRules.stageName(it, Lineage.WIND) }
+        assertEquals(
+            listOf(
+                "아기 키링 1단계", "아기 키링 2단계", "아기 키링 3단계",
+                "산들링 1단계", "산들링 2단계", "산들링 3단계",
+                "나래링 1단계", "나래링 2단계", "나래링 3단계", "하늘링 완전체",
+            ),
+            wind,
+        )
+        assertEquals("반짝링 1단계", GrowthRules.stageName(3, Lineage.LIGHT_RAY))
+        assertEquals("잎새링 2단계", GrowthRules.stageName(7, Lineage.TREE))
+        assertEquals("파도링 3단계", GrowthRules.stageName(8, Lineage.WATER))
+        assertEquals("질주링 완전체", GrowthRules.stageName(9, Lineage.EARTH))
+    }
+
+    @Test
     fun itemsOpenAtFirstGrowth() {
         assertEquals(false, GrowthRules.itemsUnlocked(0))
         assertEquals(true, GrowthRules.itemsUnlocked(1))

@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import work.integro.carling.data.CarlingData
 import work.integro.carling.data.Personality
+import work.integro.carling.game.GrowthRules
 
 /*
  * 서비스 시각화 v1 · 알과의 첫 만남 (FIRST MEETING)
@@ -75,6 +76,8 @@ fun EggArrivalScreen(onDevFirstDrive: (() -> Unit)? = null) = Step {
     Spacer(Modifier.height(if (compact) 40.dp else 60.dp))
     EggDrawing(size = if (compact) 280.dp else 360.dp)
     Spacer(Modifier.height(28.dp))
+    Text(GrowthRules.EGG_NAME, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Gold, modifier = Modifier.onScene())
+    Spacer(Modifier.height(12.dp))
     Speech("미래에서 온 작은 친구가 당신을 기다리고 있어요.")
     Spacer(Modifier.height(14.dp))
     Text(
@@ -127,7 +130,7 @@ fun AwakenScreen(data: CarlingData, onWake: () -> Unit) = Step {
     )
     Spacer(Modifier.height(16.dp))
     Text(
-        "알을 눌러 주세요 · 남은 횟수 ${(EGG_TAPS_TO_HATCH - taps).coerceAtLeast(0)}번",
+        "${GrowthRules.EGG_NAME}을 눌러 주세요 · 남은 횟수 ${(EGG_TAPS_TO_HATCH - taps).coerceAtLeast(0)}번",
         fontSize = 18.sp,
         color = Ink,
         modifier = Modifier.onScene(),
