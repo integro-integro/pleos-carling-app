@@ -139,7 +139,6 @@ class CarlingStore(context: Context, val clock: GameClock) {
                 totalMpPastDays = d.totalMpPastDays + d.mpTodayValue,
                 mpDate = today,
                 mpTodayValue = 0,
-                mpSavesToday = 0,
             )
         }
         if (d !== data) update { d }
@@ -224,7 +223,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
 
     fun toggleVoice() = update { it.copy(voiceOn = !it.voiceOn) }
 
-    fun dismissReport() = update { it.copy(pendingReport = null) }
+    fun dismissTripCard() = update { it.copy(pendingCard = null) }
 
     private fun applyDailyDecay() {
         val today = clock.today()
@@ -244,40 +243,38 @@ class CarlingStore(context: Context, val clock: GameClock) {
         }
     }
 
-    // ---- 기억 저장 (MP) ----
+    // ---- 트립카드 저장 (MP) ----
 
-    /** 오늘의 길을 '기억으로 저장'한다. 새 길 +3 MP / 익숙한 길 +1 MP, 하루 2장까지. 얻은 MP를 돌려준다. */
-    fun saveTripMemory(report: TripReport): Int {
+    /** 지금 저장하면 받을 MP. */
+    fun saveMpFor(card: TripCard): Int = GrowthRules.saveMp(
+        newPlace = card.newPlace,
+        alreadyRewarded = card.mpGained > 0,
+        rewardedOnDay = data.tripCards.count { it.date == card.date && it.mpGained > 0 },
+    )
+
+    /** 트립카드를 저장하거나 저장을 취소한다. 취소해도 받은 MP는 그대로이고, 다시 저장해도 더 주지 않는다. */
+    fun toggleTripSaved(number: Int) {
         rolloverIfNeeded()
-        if (data.mpSavesToday >= GrowthRules.MP_DAILY_SAVES) return 0
-        val newPath = report.newPlace == true
-        val mp = if (newPath) GrowthRules.MP_NEW_PATH else GrowthRules.MP_FAMILIAR
-        val where = report.placeName ?: if (newPath) "새로운 곳" else "오늘의 길"
+        val card = data.tripCards.firstOrNull { it.number == number } ?: return
+        val mp = if (card.saved) 0 else saveMpFor(card)
         update {
             it.copy(
                 mpTodayValue = it.mpTodayValue + mp,
-                mpSavesToday = it.mpSavesToday + 1,
-                memories = it.memories + MemoryCard(
-                    clock.today().toString(),
-                    if (newPath) "새로운 기억 · $where" else "기억 · $where",
-                    "${report.minutes}분을 함께 달린 길을 지도에 남겼어요. (+$mp MP)",
-                    saved = true,
-                ),
+                tripCards = it.tripCards.map { c ->
+                    if (c.number == number) c.copy(saved = !c.saved, mpGained = c.mpGained + mp) else c
+                },
             )
         }
         refreshStage()
-        return mp
     }
-
-    val canSaveMemoryToday: Boolean get() = data.mpSavesToday < GrowthRules.MP_DAILY_SAVES
 
     // ---- 진화 퀘스트 ----
 
-    fun savedMemoryCount(): Int = data.memories.count { it.saved }
+    fun savedTripCount(): Int = data.tripCards.count { it.saved }
 
     fun canCompleteQuest(evoIndex: Int): Boolean {
         val spec = GrowthRules.EVOLUTIONS[evoIndex] ?: return false
-        return evoIndex !in data.doneQuests && savedMemoryCount() >= spec.memoriesNeeded
+        return evoIndex !in data.doneQuests && savedTripCount() >= spec.memoriesNeeded
     }
 
     fun completeQuest(evoIndex: Int) {
@@ -318,7 +315,19 @@ class CarlingStore(context: Context, val clock: GameClock) {
                     lineageScores = mergeScores(it.lineageScores, GrowthRules.scoreTrip(trip.distanceKm, trip.harshEvents, trip.placeCell != null)),
                     hasHat = true,
                     wearingHat = true,
-                    memories = it.memories + MemoryCard(day, "우리의 첫 드라이브", "처음으로 같이 ${minutes}분을 달렸어요. 이 길이 첫 트립카드가 되었어요!"),
+                    tripCards = it.tripCards + TripCard(
+                        number = 1,
+                        date = day,
+                        startMillis = trip.startMillis,
+                        minutes = minutes,
+                        distanceKm = trip.distanceKm,
+                        light = light,
+                        safety = safety.takeIf { trip.harshEvents != null },
+                        placeName = trip.placeName,
+                        newPlace = true,
+                        dayNumber = 1,
+                        highlights = listOf("우리의 첫 드라이브"),
+                    ),
                 )
             }
             return
@@ -327,7 +336,6 @@ class CarlingStore(context: Context, val clock: GameClock) {
         rolloverIfNeeded()
         val before = data
         val oldStage = before.reachedStage
-        val newDay = day !in before.togetherDays
         val safe = safety >= GrowthRules.SAFE_SCORE_MIN
         val newPlace = trip.placeCell?.let { it !in before.placeCells }
 
@@ -352,14 +360,9 @@ class CarlingStore(context: Context, val clock: GameClock) {
             }
         }
 
-        val memories = before.memories.toMutableList()
-        if (newPlace == true) {
-            val where = trip.placeName ?: "처음 보는 곳"
-            memories += MemoryCard(day, "처음 보는 풍경", "${where}에 처음 같이 왔어요. 기억으로 저장하면 지도가 밝아져요.")
-        }
-        if (cardGotLabel != null) {
-            memories += MemoryCard(day, "진화의 조짐", "길에서 ${cardGotLabel}를 받았어요!")
-        }
+        val highlights = mutableListOf<String>()
+        if (newPlace == true) highlights += "처음 보는 풍경"
+        cardGotLabel?.let { highlights += "$it 획득" }
 
         var next = before.copy(
             togetherDays = before.togetherDays + day,
@@ -384,32 +387,26 @@ class CarlingStore(context: Context, val clock: GameClock) {
         val lineage = if (lineageWasNull && newStage >= 2) GrowthRules.dominantLineage(next.lineageScores) else before.lineage
         next = next.copy(reachedStage = newStage, lineage = lineage)
 
-        val stageUpLabel = if (newStage > oldStage) GrowthRules.STAGES[newStage].label else null
-        if (stageUpLabel != null) {
-            memories += MemoryCard(day, stageUpLabel, "조건을 모두 채워 ${stageUpLabel}에 닿았어요!")
-        }
-        val lineageDecidedLabel = if (lineageWasNull && lineage != null) lineage.label else null
+        if (newStage > oldStage) highlights += "${GrowthRules.STAGES[newStage].label} 도달"
+        if (lineageWasNull && lineage != null) highlights += "${lineage.label} 계열이 되었어요"
 
+        val number = before.tripCount + 1
         update {
             next.copy(
-                memories = memories,
-                pendingReport = TripReport(
+                pendingCard = number,
+                tripCards = before.tripCards + TripCard(
+                    number = number,
+                    date = day,
+                    startMillis = trip.startMillis,
                     minutes = minutes,
                     distanceKm = trip.distanceKm,
                     light = light,
+                    safety = safety.takeIf { trip.harshEvents != null },
                     placeName = trip.placeName,
                     newPlace = newPlace,
-                    smoothPraise = trip.harshEvents == 0,
-                    newDay = newDay,
                     dayNumber = dayNum,
-                    togetherDays = next.togetherDays.size,
                     driveXpToday = GrowthRules.driveXp(next.tripsToday, next.safeTripsToday),
-                    totalXp = next.totalXp,
-                    totalMp = next.totalMp,
-                    firstDrive = before.tripCount <= 1,
-                    stageUpLabel = stageUpLabel,
-                    lineageDecidedLabel = lineageDecidedLabel,
-                    cardGotLabel = cardGotLabel,
+                    highlights = highlights,
                 ),
             )
         }

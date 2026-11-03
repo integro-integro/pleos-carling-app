@@ -38,6 +38,16 @@ class GrowthRulesTest {
     }
 
     @Test
+    fun savingPaysMpOnlyForFirstTwoCardsOfTheDay() {
+        assertEquals(3, GrowthRules.saveMp(newPlace = true, alreadyRewarded = false, rewardedOnDay = 0))
+        assertEquals(1, GrowthRules.saveMp(newPlace = false, alreadyRewarded = false, rewardedOnDay = 1))
+        assertEquals(1, GrowthRules.saveMp(newPlace = null, alreadyRewarded = false, rewardedOnDay = 0))
+        assertEquals(0, GrowthRules.saveMp(newPlace = true, alreadyRewarded = false, rewardedOnDay = 2))
+        // 저장을 취소했다가 다시 저장해도 더 주지 않는다
+        assertEquals(0, GrowthRules.saveMp(newPlace = true, alreadyRewarded = true, rewardedOnDay = 0))
+    }
+
+    @Test
     fun stageNeedsDayXpAndMp_andDoesNotSkip() {
         // D7 성장1: 70 XP · 5 MP
         assertEquals(0, GrowthRules.stageIndex(dayNumber = 7, totalXp = 69, totalMp = 5, ownedCards = emptySet(), doneQuests = emptySet()))

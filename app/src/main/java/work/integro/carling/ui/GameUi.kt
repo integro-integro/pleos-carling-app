@@ -307,7 +307,7 @@ fun GameSlot(
                     .background(Brush.verticalGradient(listOf(Color(0xFFFF7A8A), Color(0xFFE0405A))), CircleShape)
                     .border(3.dp, Outline, CircleShape),
                 contentAlignment = Alignment.Center,
-            ) { Text("$badge", style = gameText(15.sp)) }
+            ) { Text(if (badge > 99) "99+" else "$badge", style = gameText(if (badge > 99) 12.sp else 15.sp)) }
         }
     }
 }

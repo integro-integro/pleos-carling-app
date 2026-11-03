@@ -46,7 +46,6 @@ data class CarlingData(
     // 오늘 MP 집계
     val mpDate: String? = null,
     val mpTodayValue: Int = 0,
-    val mpSavesToday: Int = 0,
 
     // 계열 — D14에 결정, D30(진화1)에서 확정. 누적 점수로 판정.
     val lineageScores: Map<Lineage, Float> = emptyMap(),
@@ -79,11 +78,12 @@ data class CarlingData(
     val petDate: String? = null,
     val petsToday: Int = 0,
 
-    // 꾸미기·추억
+    // 꾸미기·트립카드
     val hasHat: Boolean = false,
     val wearingHat: Boolean = false,
-    val memories: List<MemoryCard> = emptyList(),
-    val pendingReport: TripReport? = null,
+    val tripCards: List<TripCard> = emptyList(),
+    /** 주차 후 아직 확인하지 않은 새 트립카드의 번호. */
+    val pendingCard: Int? = null,
 
     // 설정
     val voiceOn: Boolean = true,
@@ -130,31 +130,25 @@ enum class Routine(val label: String, val reply: String) {
 @Serializable
 data class ActiveTrip(val startMillis: Long, val startOdometerKm: Float?)
 
+/** 트립 한 번이 남기는 카드. 저장 여부와 무관하게 자동으로 쌓이고, 원하는 카드만 저장한다. */
 @Serializable
-data class MemoryCard(
+data class TripCard(
+    val number: Int,
     val date: String,
-    val title: String,
-    val text: String,
-    val saved: Boolean = false, // 기억으로 저장됨(MP 판정 완료)
-)
-
-/** 주차 후 보여주는 '오늘의 기억' 한 장 + 성장 요약. */
-@Serializable
-data class TripReport(
+    val startMillis: Long,
     val minutes: Int,
     val distanceKm: Float?,
     val light: Light,
+    /** 안전운전 점수. 차량 속도를 읽지 못해 측정하지 못했으면 null. */
+    val safety: Int?,
     val placeName: String?,
+    /** 처음 간 길인지. 위치를 쓰지 않아 판정하지 못했으면 null. */
     val newPlace: Boolean?,
-    val smoothPraise: Boolean,
-    val newDay: Boolean,
     val dayNumber: Int,
-    val togetherDays: Int,
-    val driveXpToday: Int,
-    val totalXp: Int,
-    val totalMp: Int,
-    val firstDrive: Boolean,
-    val stageUpLabel: String? = null,
-    val lineageDecidedLabel: String? = null,
-    val cardGotLabel: String? = null,
-)
+    val driveXpToday: Int = 0,
+    val highlights: List<String> = emptyList(),
+    val saved: Boolean = false,
+    val mpGained: Int = 0,
+) {
+    val title: String get() = placeName ?: if (newPlace == true) "처음 달린 길" else "함께 달린 길"
+}

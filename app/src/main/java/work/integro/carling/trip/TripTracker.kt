@@ -75,10 +75,10 @@ class TripTracker(
             ),
         )
         speed.endTrip()
-        val report = store.data.pendingReport
+        val card = store.data.pendingCard?.let { number -> store.data.tripCards.firstOrNull { it.number == number } }
         val personality = store.data.personality
-        if (report != null && personality != null) {
-            say("${personality.arrivalLine} ${report.minutes}분 같이 달렸어요.")
+        if (card != null && personality != null) {
+            say("${personality.arrivalLine} ${card.minutes}분 같이 달렸어요.")
         }
         Log.i(TAG, "주행 종료: ${(end - trip.startMillis) / 1000}s, place=${place != null}")
     }

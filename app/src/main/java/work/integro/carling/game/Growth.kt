@@ -114,6 +114,16 @@ object GrowthRules {
     const val MP_FAMILIAR = 1
     const val MP_DAILY_SAVES = 2
 
+    /**
+     * 트립카드를 저장할 때 얻는 MP. 저장은 언제나 할 수 있지만, 보상은 운행일별 2장까지이고
+     * 같은 카드를 다시 저장하면 0이다. 위치를 쓰지 않아 판정할 수 없으면 익숙한 길로 본다.
+     */
+    fun saveMp(newPlace: Boolean?, alreadyRewarded: Boolean, rewardedOnDay: Int): Int = when {
+        alreadyRewarded || rewardedOnDay >= MP_DAILY_SAVES -> 0
+        newPlace == true -> MP_NEW_PATH
+        else -> MP_FAMILIAR
+    }
+
     // ---- 진화카드 · 특별 퀘스트 ----
     data class EvoSpec(val evoIndex: Int, val lotteryStartDay: Int, val quest: String, val memoriesNeeded: Int)
 

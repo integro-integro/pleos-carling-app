@@ -46,8 +46,8 @@ class DevSimulator(private val store: CarlingStore) {
                     placeName = if (explore) "새로운 길" else "늘 가던 길",
                 ),
             )
-            store.data.pendingReport?.let { store.saveTripMemory(it) }
-            store.dismissReport()
+            store.data.pendingCard?.let { store.toggleTripSaved(it) }
+            store.dismissTripCard()
         }
         store.onCharging()      // 연료·충전 XP +10
         store.pet()             // 친밀도 행동 1
