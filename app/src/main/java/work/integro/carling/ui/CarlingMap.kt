@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -56,7 +57,7 @@ import kotlin.math.min
 /*
  * 카링의 지도. 어두운 지도에서 함께 달린 길만 켜진다.
  * 지도 SDK 없이 Canvas로 그리며, 바탕은 해안선만 어림한 그림이다.
- * 길은 주행 중 기록한 실제 경로로 그리고, 기록이 없는 길만 도로처럼 지어낸다 (data/MapRoads.kt).
+ * 길은 주행 중 기록한 실제 경로로 그리고, 기록이 없는 길은 선 대신 도착 불빛 점으로만 표시한다.
  */
 
 private val Sea = Color(0xFF070B1E)
@@ -148,7 +149,7 @@ fun CarlingMapScreen(routes: List<MapRoute>, tracks: Map<String, List<GeoDot>>, 
         ) {
             val view = MapView(centerLng, centerLat, pxPerDegree(size.height, zoom), size.width, size.height)
             drawDarkLand(view, zoom)
-            drawRoads(view, routes, roads, zoom, measurer)
+            drawRoads(view, routes, roads, measurer)
         }
 
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -196,7 +197,7 @@ fun CarlingMapScreen(routes: List<MapRoute>, tracks: Map<String, List<GeoDot>>, 
         }
 
         if (hasMadeUpRoad) Text(
-            "경로를 기록하지 못한 길은 모양이 실제와 달라요",
+            "아직 경로를 기록 못한 곳은 불빛으로 보여요",
             fontSize = 16.sp,
             color = Muted,
             modifier = Modifier
@@ -290,32 +291,53 @@ private fun DrawScope.drawDarkLand(view: MapView, zoom: Float) {
     }
 }
 
-/** 켜진 길. 자주 달린 길일수록 밝고 굵다. */
-private fun DrawScope.drawRoads(view: MapView, routes: List<MapRoute>, roads: List<List<GeoDot>>, zoom: Float, measurer: TextMeasurer) {
-    val labels = routes.size <= 6 || zoom >= 3f
+/** 자동으로 붙는 기본 이름 — 사용자가 직접 지은 이름이 아니라 지도에 글자로 띄우지 않는다. */
+private val DefaultNames = setOf("새로운 길", "늘 가던 길")
+
+/**
+ * 켜진 길. 자주 달린 길일수록 밝고 굵다.
+ * 실제 경로를 기록한 길만 선으로 그리고, 기록이 없는 길은 지어낸 선 대신 도착 불빛 점으로만 표시한다.
+ * 라벨은 사용자가 직접 지은 이름만, 그마저도 서로 겹치면 생략한다.
+ */
+private fun DrawScope.drawRoads(view: MapView, routes: List<MapRoute>, roads: List<List<GeoDot>>, measurer: TextMeasurer) {
+    // 1패스: 길 선과 도착 불빛
     routes.forEachIndexed { i, route ->
-        val road = roads[i]
-        val path = Path().apply {
-            road.forEachIndexed { k, dot ->
-                val s = view.toScreen(dot.lng.toFloat(), dot.lat.toFloat())
-                if (k == 0) moveTo(s.x, s.y) else lineTo(s.x, s.y)
-            }
-        }
         val bright = (0.6f + 0.1f * route.visits).coerceAtMost(1f)
-        val w = 4f + route.visits.coerceAtMost(5) * 0.8f
-        drawPath(path, Road.copy(alpha = 0.16f * bright), style = Stroke(w * 4.5f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-        drawPath(path, Road.copy(alpha = bright), style = Stroke(w, cap = StrokeCap.Round, join = StrokeJoin.Round))
-        drawPath(path, RoadCore.copy(alpha = bright), style = Stroke(w * 0.35f, cap = StrokeCap.Round, join = StrokeJoin.Round))
         val at = view.toScreen(route.toLng.toFloat(), route.toLat.toFloat())
-        drawCircle(Road.copy(alpha = 0.3f), 18f, at)
-        drawCircle(RoadCore, 6.5f, at)
-        val name = route.name
-        if (labels && name != null) {
-            val text = name.take(14)
-            val offset = at + Offset(14f, -36f)
-            drawText(measurer, text, offset, TextStyle(fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Sea, drawStyle = Stroke(6f, join = StrokeJoin.Round)))
-            drawText(measurer, text, offset, TextStyle(fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Ink))
+        if (route.trackKey != null) {
+            val path = Path().apply {
+                roads[i].forEachIndexed { k, dot ->
+                    val s = view.toScreen(dot.lng.toFloat(), dot.lat.toFloat())
+                    if (k == 0) moveTo(s.x, s.y) else lineTo(s.x, s.y)
+                }
+            }
+            val w = 4f + route.visits.coerceAtMost(5) * 0.8f
+            drawPath(path, Road.copy(alpha = 0.16f * bright), style = Stroke(w * 4.5f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            drawPath(path, Road.copy(alpha = bright), style = Stroke(w, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            drawPath(path, RoadCore.copy(alpha = bright), style = Stroke(w * 0.35f, cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
+        // 도착 불빛 — 기록 없는 길은 이 점이 유일한 표시다. 자주 간 곳일수록 크고 밝게.
+        val glow = 13f + route.visits.coerceAtMost(6) * 3f
+        drawCircle(Road.copy(alpha = 0.22f * bright), glow, at)
+        drawCircle(Road.copy(alpha = 0.5f * bright), glow * 0.5f, at)
+        drawCircle(RoadCore.copy(alpha = bright), if (route.trackKey != null) 6.5f else 5f, at)
+    }
+
+    // 2패스: 라벨. 사용자가 지은 이름만, 이미 그린 라벨과 겹치면 건너뛴다.
+    val drawn = ArrayList<Rect>()
+    routes.forEach { route ->
+        val name = route.name ?: return@forEach
+        if (name in DefaultNames) return@forEach
+        val at = view.toScreen(route.toLng.toFloat(), route.toLat.toFloat())
+        if (at.x < -40f || at.y < -40f || at.x > size.width + 40f || at.y > size.height + 40f) return@forEach
+        val text = name.take(14)
+        val offset = at + Offset(14f, -36f)
+        val measured = measurer.measure(text, TextStyle(fontSize = 19.sp, fontWeight = FontWeight.Bold))
+        val rect = Rect(offset.x - 3f, offset.y - 3f, offset.x + measured.size.width + 3f, offset.y + measured.size.height + 3f)
+        if (drawn.any { it.overlaps(rect) }) return@forEach
+        drawn += rect
+        drawText(measurer, text, offset, TextStyle(fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Sea, drawStyle = Stroke(6f, join = StrokeJoin.Round)))
+        drawText(measurer, text, offset, TextStyle(fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Ink))
     }
 }
 
