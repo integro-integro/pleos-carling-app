@@ -107,7 +107,7 @@ internal fun ArtDrawing(
     }
 }
 
-/** 서비스 시각화 v1 의 알: 유리처럼 빛나는 하늘색 젤리 알 안에서 초록 심장이 뛴다. */
+/** 서비스 시각화 v1 의 알: 진주빛 젤리 알 안에서 초록 심장이 뛴다. */
 @Composable
 fun EggDrawing(size: Dp, modifier: Modifier = Modifier) = ArtDrawing(EggArt, size, modifier, rockDegrees = 4f)
 
