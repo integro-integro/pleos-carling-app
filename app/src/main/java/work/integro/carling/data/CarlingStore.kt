@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.serialization.json.Json
+import work.integro.carling.game.CarlingItem
 import work.integro.carling.game.GameClock
 import work.integro.carling.game.GrowthRules
 import work.integro.carling.game.Light
@@ -219,7 +220,12 @@ class CarlingStore(context: Context, val clock: GameClock) {
         refreshStage()
     }
 
-    fun toggleHat() = update { if (it.hasHat) it.copy(wearingHat = !it.wearingHat) else it }
+    /** 아이템을 착용한다. null이면 벗는다. 성장 1 전에는 착용할 수 없다. */
+    fun equipItem(item: CarlingItem?) = update {
+        if (GrowthRules.itemsUnlocked(it.reachedStage)) it.copy(equippedItem = item) else it
+    }
+
+    fun markItemIntroSeen() = update { it.copy(itemIntroSeen = true) }
 
     fun toggleVoice() = update { it.copy(voiceOn = !it.voiceOn) }
 
@@ -321,8 +327,6 @@ class CarlingStore(context: Context, val clock: GameClock) {
                     placeCells = trip.placeCell?.let { c -> it.placeCells + c } ?: it.placeCells,
                     newPlaces = it.newPlaces + if (trip.placeCell != null) 1 else 0,
                     lineageScores = mergeScores(it.lineageScores, GrowthRules.scoreTrip(trip.distanceKm, trip.harshEvents, trip.placeCell != null)),
-                    hasHat = true,
-                    wearingHat = true,
                     tripCards = it.tripCards + TripCard(
                         number = 1,
                         date = day,

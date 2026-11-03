@@ -87,7 +87,7 @@ private fun DrivingMode(data: CarlingData) {
                     size = 120.dp,
                     stageIndex = data.reachedStage,
                     glow = data.glowColor(),
-                    hat = data.wearingHat,
+                    item = data.equippedItem,
                     mood = personality,
                     lineage = data.lineage,
                 )

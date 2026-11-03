@@ -41,6 +41,14 @@ enum class Lineage(val label: String, val color: Long, val names: List<String>, 
     EARTH("흙", 0xFFFF9D5C, listOf("총총링", "부릉링", "질주링"), "10km 미만 짧은 트립이 많을 때"),
 }
 
+/** 카링이 착용하는 아이템. 성장 1부터 쓸 수 있다. */
+@Serializable
+enum class CarlingItem(val label: String, val icon: String) {
+    PARTY_HAT("고깔 모자", "🎉"),
+    RIBBON("리본", "🎀"),
+    CROWN("왕관", "👑"),
+}
+
 /** 캐릭터 크기 단계(그림용). 세부 성장/진화 단계는 [GrowthRules.StageSpec] 인덱스로 다룬다. */
 enum class Stage(val label: String) {
     EGG("알"),
@@ -113,6 +121,11 @@ object GrowthRules {
     const val MP_NEW_PATH = 3
     const val MP_FAMILIAR = 1
     const val MP_DAILY_SAVES = 2
+
+    /** 아이템이 열리는 단계(성장 1). 아기 카링과 확실히 다르게 하는 첫 보상이다. */
+    const val ITEM_UNLOCK_STAGE = 1
+
+    fun itemsUnlocked(stageIndex: Int): Boolean = stageIndex >= ITEM_UNLOCK_STAGE
 
     /**
      * 트립카드를 저장할 때 얻는 MP. 저장은 언제나 할 수 있지만, 보상은 운행일별 2장까지이고

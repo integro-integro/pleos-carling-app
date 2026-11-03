@@ -1,6 +1,7 @@
 package work.integro.carling.data
 
 import kotlinx.serialization.Serializable
+import work.integro.carling.game.CarlingItem
 import work.integro.carling.game.GrowthRules
 import work.integro.carling.game.Light
 import work.integro.carling.game.Lineage
@@ -78,8 +79,9 @@ data class CarlingData(
     val petsToday: Int = 0,
 
     // 꾸미기·트립카드
-    val hasHat: Boolean = false,
-    val wearingHat: Boolean = false,
+    val equippedItem: CarlingItem? = null,
+    /** 성장 1의 '아이템이 열렸어요' 안내를 봤는지. */
+    val itemIntroSeen: Boolean = false,
     val tripCards: List<TripCard> = emptyList(),
     /** 주차 후 아직 확인하지 않은 새 트립카드의 번호. */
     val pendingCard: Int? = null,

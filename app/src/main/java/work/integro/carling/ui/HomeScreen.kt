@@ -64,6 +64,7 @@ fun HomeScreen(
     var openCard by remember { mutableStateOf<Int?>(null) }
     var showMap by remember { mutableStateOf(false) }
     var showScenes by remember { mutableStateOf(false) }
+    var showItems by remember { mutableStateOf(false) }
     var showTutorial by remember { mutableStateOf(false) }
     var justFed by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { greetedToday = store.greetIfNewDay() }
@@ -76,13 +77,13 @@ fun HomeScreen(
         else -> personality.greeting
     }
 
-    val carlingSize = if (compact) 300.dp else 400.dp
+    val carlingSize = if (compact) 360.dp else 480.dp
     val lookStage = store.devLook?.first ?: data.reachedStage
     val lookLineage = store.devLook?.second ?: data.lineage
     val playground = @Composable { areaModifier: Modifier ->
         Wandering(
             size = carlingSize,
-            enabled = data.pendingCard == null && !showTripCards && openCard == null && !showMap && !showTutorial && !showScenes,
+            enabled = data.pendingCard == null && !showTripCards && openCard == null && !showMap && !showTutorial && !showScenes && !showItems,
             personality = personality,
             tapLines = personality.tapLines,
             onPetted = store::pet,
@@ -93,7 +94,7 @@ fun HomeScreen(
                     size = carlingSize,
                     stageIndex = lookStage,
                     glow = lookLineage?.let { Color(it.color) } ?: BaseGlow,
-                    hat = data.wearingHat,
+                    item = data.equippedItem,
                     mood = personality,
                     lineage = lookLineage,
                     asleep = napping,
@@ -118,6 +119,7 @@ fun HomeScreen(
             onTripCards = { showTripCards = true },
             onMap = { showMap = true },
             onScenes = { showScenes = true },
+            onItems = { showItems = true },
             onLocationToggle = { allowed ->
                 store.setLocationConsent(allowed)
                 if (allowed) onLocationAllowed()
@@ -181,6 +183,17 @@ fun HomeScreen(
             }
         }
         if (showMap) ExampleMapScreen(onClose = { showMap = false })
+        if (showItems) {
+            ItemsDialog(data, personality, onSelect = store::equipItem, onClose = { showItems = false })
+        }
+        if (GrowthRules.itemsUnlocked(data.reachedStage) && !data.itemIntroSeen && data.pendingCard == null && openCard == null) {
+            ItemUnlockDialog(
+                data,
+                personality,
+                onOpenItems = { store.markItemIntroSeen(); showItems = true },
+                onLater = store::markItemIntroSeen,
+            )
+        }
         if (showScenes) ScenePickerDialog(data.scene, onSelect = store::setScene, onClose = { showScenes = false })
         if (showTutorial) TutorialDialog(onClose = { showTutorial = false })
     }
@@ -194,6 +207,7 @@ private fun StatusPanel(
     onTripCards: () -> Unit,
     onMap: () -> Unit,
     onScenes: () -> Unit,
+    onItems: () -> Unit,
     onLocationToggle: (Boolean) -> Unit,
 ) {
     val today = store.clock.today()
@@ -238,6 +252,9 @@ private fun StatusPanel(
                 } else ""
                 Text("다음 ${n.label}: D${n.day} · XP ${n.cumXp} · MP ${n.cumMp}$extra",
                     fontSize = 16.sp, color = Muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                if (!GrowthRules.itemsUnlocked(data.reachedStage)) {
+                    Text("🔒 성장 1이 되면 아이템이 열려요", fontSize = 16.sp, color = Gold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                }
                 // 진화 퀘스트 — 조건 충족 시 완료 버튼
                 if (n.evoIndex != null && n.evoIndex in data.ownedCards && n.evoIndex !in data.doneQuests) {
                     Spacer(Modifier.height(8.dp))
@@ -279,7 +296,8 @@ private fun StatusPanel(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 GameSlot("🃏", "트립카드", enabled = true, badge = data.tripCards.size, modifier = Modifier.weight(1.2f), onClick = onTripCards)
                 GameSlot("🗺", "지도", enabled = true, modifier = Modifier.weight(1f), onClick = onMap)
-                GameSlot("🎩", if (data.wearingHat) "벗기" else "쓰기", enabled = data.hasHat && canWearHat(data.reachedStage, data.lineage), selected = data.wearingHat, modifier = Modifier.weight(1f), onClick = store::toggleHat)
+                val itemsOpen = GrowthRules.itemsUnlocked(data.reachedStage)
+                GameSlot(if (itemsOpen) "🎁" else "🔒", "아이템", enabled = itemsOpen, selected = data.equippedItem != null, modifier = Modifier.weight(1f), onClick = onItems)
                 Column(Modifier.weight(1.2f), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("📍 위치", style = gameText(17.sp))
                     Spacer(Modifier.height(6.dp))
@@ -307,6 +325,7 @@ private val tutorialSections: List<Triple<String, String, String>> = listOf(
     Triple("⭐", "지도 포인트 (MP)", "트립카드를 저장하면 받아요. 새 길 +3, 익숙한 길 +1 (운행일마다 2장까지). 저장은 그보다 많이 해도 돼요."),
     Triple("🗺", "지도", "지금 지도는 예시 화면이에요. 지역 버튼이나 +, −로 움직여 볼 수 있고, 내 트립 경로는 아직 표시되지 않아요."),
     Triple("🖼", "배경", "알이 깨어나면 도시·바닷가 해안·맑은 하늘·고요한 숲 중에서 고를 수 있어요. 낮과 밤은 차량 시계에 맞춰 저절로 바뀌어요."),
+    Triple("🎁", "아이템", "성장 1이 되면 열려요. 고깔 모자·리본·왕관 중 하나를 골라 카링을 꾸며 보세요."),
     Triple("🎨", "계열", "처음엔 진주색이에요. 운전 습관에 따라 D14에 계열(바람·빛·나무·물·흙)이 정해지면 몸 색과 외형이 바뀌어요."),
     Triple("✨", "진화", "D30·D90·D180에 진화카드를 받고 특별 퀘스트를 채우면 진화해요. 단계는 건너뛰지 않고, 자랄수록 모습이 크게 달라져요."),
     Triple("💗", "돌보기", "쓰다듬기·밥 주기·놀아주기·말 걸기로 교감해요 (하루 서로 다른 2가지 행동까지 XP)."),

@@ -38,6 +38,13 @@ class GrowthRulesTest {
     }
 
     @Test
+    fun itemsOpenAtFirstGrowth() {
+        assertEquals(false, GrowthRules.itemsUnlocked(0))
+        assertEquals(true, GrowthRules.itemsUnlocked(1))
+        assertEquals(true, GrowthRules.itemsUnlocked(9))
+    }
+
+    @Test
     fun nightnessFollowsClock() {
         assertEquals(1f, nightnessAt(0, 0))
         assertEquals(1f, nightnessAt(5, 29))

@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import work.integro.carling.data.Personality
+import work.integro.carling.game.CarlingItem
 import work.integro.carling.game.GrowthRules
 import work.integro.carling.game.Lineage
 import work.integro.carling.game.Stage
@@ -64,7 +65,7 @@ internal fun ArtDrawing(
     modifier: Modifier,
     res: Int = art.res,
     rockDegrees: Float = 0f,
-    hat: Boolean = false,
+    item: CarlingItem? = null,
     beating: Boolean = true,
     overlay: (DrawScope.(s: Float) -> Unit)? = null,
 ) {
@@ -100,7 +101,7 @@ internal fun ArtDrawing(
                 }
                 overlay?.invoke(this, s)
                 val body = art.bodyCenter
-                if (hat && body != null) drawHat(Offset(body.x * s, body.y * s), art.bodyRadius * s)
+                if (item != null && body != null) drawItem(item, Offset(body.x * s, body.y * s), art.bodyRadius * s)
                 drawSparkles(center, s * 0.42f, Color.White, twinkle)
             }
         }
@@ -117,7 +118,7 @@ fun EggDrawing(size: Dp, modifier: Modifier = Modifier) = ArtDrawing(EggArt, siz
  * - asleep: 자는 중 — 자는 모습 일러스트가 맞는 단계에서만 바뀐다
  * - glow: 벡터 그림의 몸빛(계열 색)
  * - mood: 벡터 그림의 표정 (나른=눈웃음, 도도=활짝, 루미=잔잔한 미소)
- * - hat: 첫 드라이브 선물 모자
+ * - item: 착용한 아이템. 아이템이 열리기 전 단계에서는 그리지 않는다
  * - path: 탐험이면 눈에 작은 별 반짝임
  */
 @Composable
@@ -127,15 +128,16 @@ fun CarlingDrawing(
     stageIndex: Int = 0,
     glow: Color = BaseGlow,
     path: GrowthPath? = null,
-    hat: Boolean = false,
+    item: CarlingItem? = null,
     mood: Personality? = null,
     lineage: Lineage? = null,
     asleep: Boolean = false,
 ) {
     val art = carlingArt(stageIndex, lineage)
+    val shownItem = item.takeIf { GrowthRules.itemsUnlocked(stageIndex) }
     if (art != null) {
         val sleeping = asleep && stageIndex == SLEEP_ART_STAGE
-        ArtDrawing(art, size, modifier, res = if (sleeping) SleepArtRes else art.res, hat = hat, beating = !sleeping)
+        ArtDrawing(art, size, modifier, res = if (sleeping) SleepArtRes else art.res, item = shownItem, beating = !sleeping)
         return
     }
     val stage = GrowthRules.sizeStage(hatched = true, stageIndex = stageIndex)
@@ -167,7 +169,7 @@ fun CarlingDrawing(
             drawHeartCore(c, r, beat)
             drawFace(c, r, mood, sparkle = path == GrowthPath.EXPLORER)
             if (tier > 0) drawLineageFront(c, r, lineage!!, tier)
-            if (hat) drawHat(c, r)
+            if (shownItem != null) drawItem(shownItem, c, r)
         }
         drawSparkles(c, r * 1.7f, lerp(Color.White, glow, 0.3f), twinkle)
     }
@@ -282,7 +284,48 @@ private fun DrawScope.drawFace(c: Offset, r: Float, mood: Personality?, sparkle:
     }
 }
 
-/** 첫 드라이브 선물 모자 — 작은 고깔. */
+/** 착용한 아이템을 몸 위에 그린다. [c]·[r]은 젤리 몸의 중심과 반지름. */
+private fun DrawScope.drawItem(item: CarlingItem, c: Offset, r: Float) = when (item) {
+    CarlingItem.PARTY_HAT -> drawHat(c, r)
+    CarlingItem.RIBBON -> drawRibbon(c, r)
+    CarlingItem.CROWN -> drawCrown(c, r)
+}
+
+private fun DrawScope.drawRibbon(c: Offset, r: Float) {
+    val at = c + Offset(r * 0.52f, -r * 0.78f)
+    val pink = Brush.linearGradient(listOf(Color(0xFFFF9CC2), Color(0xFFE5507E)), at - Offset(r * 0.4f, r * 0.3f), at + Offset(r * 0.4f, r * 0.3f))
+    for (side in listOf(-1f, 1f)) {
+        val wing = Path().apply {
+            moveTo(at.x, at.y)
+            cubicTo(at.x + side * r * 0.2f, at.y - r * 0.36f, at.x + side * r * 0.5f, at.y - r * 0.3f, at.x + side * r * 0.5f, at.y)
+            cubicTo(at.x + side * r * 0.5f, at.y + r * 0.3f, at.x + side * r * 0.2f, at.y + r * 0.34f, at.x, at.y)
+            close()
+        }
+        drawPath(wing, pink)
+    }
+    drawCircle(Color(0xFFFFD0E2), r * 0.11f, at)
+}
+
+private fun DrawScope.drawCrown(c: Offset, r: Float) {
+    val top = c.y - r * 1.0f
+    val w = r * 0.58f
+    val h = r * 0.44f
+    val crown = Path().apply {
+        moveTo(c.x - w, top)
+        lineTo(c.x - w * 1.1f, top - h)
+        lineTo(c.x - w * 0.45f, top - h * 0.5f)
+        lineTo(c.x, top - h * 1.2f)
+        lineTo(c.x + w * 0.45f, top - h * 0.5f)
+        lineTo(c.x + w * 1.1f, top - h)
+        lineTo(c.x + w, top)
+        close()
+    }
+    drawPath(crown, Brush.verticalGradient(listOf(Color(0xFFFFEFA8), Color(0xFFF2B93B)), top - h * 1.2f, top))
+    drawRoundRect(Color(0xFFE29A22), Offset(c.x - w, top - r * 0.03f), Size(w * 2, r * 0.11f), CornerRadius(r * 0.05f))
+    drawCircle(Color(0xFFFF6F91), r * 0.06f, Offset(c.x, top - h * 0.45f))
+}
+
+/** 고깔 모자. */
 private fun DrawScope.drawHat(c: Offset, r: Float) {
     val pivot = c + Offset(-r * 0.4f, -r * 0.92f)
     rotate(-16f, pivot = pivot) {

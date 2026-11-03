@@ -29,20 +29,20 @@ internal val EggArt = CarlingArt(R.drawable.carling_egg, 1f, Offset(0.499f, 0.60
 
 /** 계열이 정해지기 전(아기, 성장 1)의 진주색 일러스트. 모든 계열이 같다. */
 private val PearlArts = listOf(
-    CarlingArt(R.drawable.carling_stage0, 0.76f, Offset(0.488f, 0.679f), 0.13f, Offset(0.5f, 0.83f), Offset(0.5f, 0.55f), 0.28f),
-    CarlingArt(R.drawable.carling_stage1, 0.8f, Offset(0.488f, 0.668f), 0.13f, Offset(0.5f, 0.83f), Offset(0.5f, 0.54f), 0.295f),
+    CarlingArt(R.drawable.carling_stage0, 0.94f, Offset(0.488f, 0.679f), 0.13f, Offset(0.5f, 0.83f), Offset(0.5f, 0.55f), 0.28f),
+    CarlingArt(R.drawable.carling_stage1, 0.98f, Offset(0.488f, 0.668f), 0.13f, Offset(0.5f, 0.83f), Offset(0.5f, 0.54f), 0.295f),
 )
 
 /** 계열이 정해진 뒤(성장 2부터)의 바람 계열 일러스트. */
 private val WindArts = listOf(
-    CarlingArt(R.drawable.carling_stage2, 0.84f, Offset(0.495f, 0.64f), 0.13f, Offset(0.5f, 0.81f), Offset(0.5f, 0.49f), 0.28f),
-    CarlingArt(R.drawable.carling_stage3, 0.88f, Offset(0.49f, 0.68f), 0.14f, Offset(0.49f, 0.86f), Offset(0.49f, 0.51f), 0.31f),
-    CarlingArt(R.drawable.carling_stage4, 0.94f, Offset(0.46f, 0.65f), 0.14f, Offset(0.47f, 0.84f), Offset(0.48f, 0.51f), 0.29f),
-    CarlingArt(R.drawable.carling_stage5, 1f, Offset(0.45f, 0.65f), 0.12f, Offset(0.46f, 0.81f), Offset(0.46f, 0.53f), 0.26f),
-    CarlingArt(R.drawable.carling_stage6, 1.04f, Offset(0.32f, 0.7f), 0.08f, Offset(0.41f, 0.85f), mirrored = true),
+    CarlingArt(R.drawable.carling_stage2, 1f, Offset(0.495f, 0.64f), 0.13f, Offset(0.5f, 0.81f), Offset(0.5f, 0.49f), 0.28f),
+    CarlingArt(R.drawable.carling_stage3, 1.02f, Offset(0.49f, 0.68f), 0.14f, Offset(0.49f, 0.86f), Offset(0.49f, 0.51f), 0.31f),
+    CarlingArt(R.drawable.carling_stage4, 1.04f, Offset(0.46f, 0.65f), 0.14f, Offset(0.47f, 0.84f), Offset(0.48f, 0.51f), 0.29f),
+    CarlingArt(R.drawable.carling_stage5, 1.06f, Offset(0.45f, 0.65f), 0.12f, Offset(0.46f, 0.81f), Offset(0.46f, 0.53f), 0.26f),
+    CarlingArt(R.drawable.carling_stage6, 1.08f, Offset(0.32f, 0.7f), 0.08f, Offset(0.41f, 0.85f), mirrored = true),
     CarlingArt(R.drawable.carling_stage7, 1.1f, Offset(0.2f, 0.65f), 0.07f, Offset(0.33f, 0.84f), mirrored = true),
-    CarlingArt(R.drawable.carling_stage8, 1.14f, Offset(0.19f, 0.62f), 0.07f, Offset(0.29f, 0.84f), mirrored = true),
-    CarlingArt(R.drawable.carling_stage9, 1.18f, Offset(0.22f, 0.57f), 0.07f, null, mirrored = true),
+    CarlingArt(R.drawable.carling_stage8, 1.12f, Offset(0.19f, 0.62f), 0.07f, Offset(0.29f, 0.84f), mirrored = true),
+    CarlingArt(R.drawable.carling_stage9, 1.14f, Offset(0.22f, 0.57f), 0.07f, null, mirrored = true),
 )
 
 /** 해당 단계의 일러스트. 일러스트가 아직 없는 계열의 성장 2 이후면 null. */
@@ -57,6 +57,6 @@ internal const val SLEEP_ART_STAGE = 3
 
 internal val SleepArtRes = R.drawable.carling_sleep
 
-/** 이 단계·계열의 모습에 모자를 씌울 수 있는지. 일러스트가 없는 계열은 벡터 그림이라 씌울 수 있다. */
-internal fun canWearHat(stageIndex: Int, lineage: Lineage?): Boolean =
+/** 이 단계·계열의 모습에 아이템이 보이는지. 일러스트가 없는 계열은 벡터 그림이라 보인다. */
+internal fun canWearItem(stageIndex: Int, lineage: Lineage?): Boolean =
     carlingArt(stageIndex, lineage)?.let { it.bodyCenter != null } ?: true
