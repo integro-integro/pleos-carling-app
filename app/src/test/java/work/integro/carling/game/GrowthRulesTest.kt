@@ -1,10 +1,13 @@
 package work.integro.carling.game
 
 import org.junit.Assert.assertEquals
+import work.integro.carling.data.GeoDot
 import work.integro.carling.data.MapRoute
 import work.integro.carling.data.TripCard
 import work.integro.carling.data.afterTrip
 import work.integro.carling.data.recentDestinations
+import work.integro.carling.data.roadShape
+import work.integro.carling.data.roughKm
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -151,23 +154,55 @@ class GrowthRulesTest {
         assertEquals(2, listOf(card(1, null), card(2, null)).recentDestinations().size)
     }
 
+    private fun List<MapRoute>.drive(fromLat: Double?, fromLng: Double?, toLat: Double?, toLng: Double?) =
+        afterTrip(fromLat, fromLng, toLat, toLng, null, null, "d")
+
     @Test
-    fun newDestinationOrRouteLightsTheMap() {
-        val first = emptyList<MapRoute>().afterTrip(37.5, 127.0, 37.6, 127.1, newDestination = true, date = "d")
-        assertEquals(true, first.lit)
+    fun everyTripLightsTheMap() {
+        val first = emptyList<MapRoute>().drive(37.5, 127.0, 37.6, 127.1)
+        assertEquals(true, first.newRoute)
         assertEquals(1, first.routes.size)
-        // 같은 길을 반대로 달려도 새 길이 아니다
-        val back = first.routes.afterTrip(37.6, 127.1, 37.5, 127.0, newDestination = false, date = "d")
-        assertEquals(false, back.lit)
+        // 같은 길을 반대로 달리면 새 길이 아니라 더 밝아진다
+        val back = first.routes.drive(37.6, 127.1, 37.5, 127.0)
+        assertEquals(false, back.newRoute)
+        assertEquals(true, back.lit)
+        assertEquals(2, back.routes.single().visits)
         // 아는 목적지라도 다른 곳에서 출발하면 새 길이다
-        val other = first.routes.afterTrip(37.9, 127.5, 37.6, 127.1, newDestination = false, date = "d")
+        val other = first.routes.drive(37.9, 127.5, 37.6, 127.1)
         assertEquals(true, other.newRoute)
         assertEquals(2, other.routes.size)
         // 위치를 모르면 지도에 아무 일도 없다
-        assertEquals(false, first.routes.afterTrip(null, null, null, null, newDestination = false, date = "d").lit)
-        // 제자리 트립은 새 목적지일 때 점만 찍는다
-        val still = emptyList<MapRoute>().afterTrip(37.5, 127.0, 37.5, 127.0, newDestination = true, date = "d")
-        assertEquals(null, still.routes.single().fromLat)
+        assertEquals(false, first.routes.drive(null, null, null, null).lit)
+        // 제자리로 돌아온 트립도 길이 켜진다
+        val still = emptyList<MapRoute>().drive(37.5, 127.0, 37.5, 127.0)
+        assertEquals(true, still.newRoute)
+        assertEquals(2, still.routes.drive(37.5, 127.0, 37.5, 127.0).routes.single().visits)
+    }
+
+    @Test
+    fun roadsAreNotStraight() {
+        val road = roadShape(MapRoute(toLat = 35.18, toLng = 129.07, fromLat = 37.5, fromLng = 127.03))
+        assertEquals(37.5, road.first().lat, 1e-9)
+        assertEquals(129.07, road.last().lng, 1e-9)
+        // 직선에서 벗어난 만큼을 길이와 비교한다
+        val (a, b) = road.first() to road.last()
+        val off = road.maxOf { p ->
+            val t = (p.lat - a.lat) / (b.lat - a.lat)
+            kotlin.math.abs(p.lng - (a.lng + (b.lng - a.lng) * t))
+        }
+        assertEquals(true, off > 0.03)
+        // 같은 길은 언제나 같은 모양이고, 왕복도 같은 길이다
+        assertEquals(road, roadShape(MapRoute(toLat = 35.18, toLng = 129.07, fromLat = 37.5, fromLng = 127.03)))
+        assertEquals(road, roadShape(MapRoute(toLat = 37.5, toLng = 127.03, fromLat = 35.18, fromLng = 129.07)).asReversed())
+    }
+
+    @Test
+    fun tripThatReturnsDrawsClosedLoop() {
+        val at = GeoDot(37.5, 127.0)
+        val road = roadShape(MapRoute(toLat = at.lat, toLng = at.lng, distanceKm = 12f))
+        assertEquals(at.lat, road.first().lat, 1e-9)
+        assertEquals(at.lat, road.last().lat, 1e-9)
+        assertEquals(true, road.maxOf { roughKm(at, it) } > 2.0)
     }
 
     @Test

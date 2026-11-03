@@ -2,6 +2,7 @@ package work.integro.carling
 
 import android.app.Application
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 import work.integro.carling.data.CarlingStore
 import work.integro.carling.game.GameClock
 import work.integro.carling.navi.NaviPlaces
@@ -30,6 +31,7 @@ class CarlingApplication : Application() {
         private set
     lateinit var voice: Voice
         private set
+    private lateinit var places: NaviPlaces
 
     override fun onCreate() {
         super.onCreate()
@@ -38,10 +40,17 @@ class CarlingApplication : Application() {
         vehicle = VehicleSignals(this, scope)
         speed = SpeedMonitor(this)
         voice = Voice(this)
-        val places = NaviPlaces(this)
+        places = NaviPlaces(this)
 
         vehicle.start()
         places.start()
         TripTracker(scope, vehicle, speed, places, store, voice, WeatherClient()).start()
+    }
+
+    /** 위치 사용에 동의한 순간, 위치 없이 끝난 첫 운전의 길을 지도에 켠다. */
+    fun lightFirstTripRoad() {
+        scope.launch {
+            places.currentCoordinates()?.let { (lat, lng) -> store.lightFirstTrip(lat, lng) }
+        }
     }
 }

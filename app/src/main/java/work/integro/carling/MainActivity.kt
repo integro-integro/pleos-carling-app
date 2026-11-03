@@ -31,7 +31,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val vehicle by app.vehicle.state.collectAsState()
-            CarlingApp(app.store, vehicle, onLocationAllowed = requestSpeedIfNeeded)
+            CarlingApp(app.store, vehicle, onLocationAllowed = {
+                requestSpeedIfNeeded()
+                app.lightFirstTripRoad()
+            })
         }
     }
 }

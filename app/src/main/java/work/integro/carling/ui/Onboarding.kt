@@ -107,7 +107,7 @@ fun AwakenScreen(data: CarlingData, onWake: () -> Unit) = Step {
             val dist = data.firstTripDistanceKm?.takeIf { it > 0.05f }?.let { " · %.1fkm".format(it) } ?: ""
             TripCardLine("함께한 시간", "${data.firstTripMinutes}분$dist")
             TripCardLine("안전운전", "${data.firstTripSafety}점")
-            TripCardLine("지도", "새로운 길 1개가 켜졌어요")
+            TripCardLine("지도", "위치를 허용하면 이 길이 켜져요")
         }
     }
     Spacer(Modifier.height(24.dp))
@@ -216,11 +216,11 @@ fun FirstMapScreen(name: String, personality: Personality, onDone: () -> Unit, o
     val compact = LocalCompact.current
     CarlingDrawing(if (compact) 200.dp else 240.dp, mood = personality)
     Spacer(Modifier.height(8.dp))
-    Speech("어두웠던 지도에 오늘 달린 길 하나가 켜졌어요. 제가 자라는 방법을 알려줄게요.")
+    Speech("위치를 허용하면 어두운 지도에 오늘 달린 길이 켜져요. 제가 자라는 방법을 알려줄게요.")
     Spacer(Modifier.height(24.dp))
     val tips = listOf(
         "함께 달리기" to "운전이 끝날 때마다 트립카드 한 장",
-        "기억 저장" to "오늘의 길을 지도에 남기면 지도가 켜짐",
+        "지도" to "운전을 마칠 때마다 달린 길이 지도에 켜짐",
         "매일 교감" to "쓰다듬기·밥 주기·놀아주기·말 걸기",
         "천천히, 함께" to "거리가 아니라 함께한 횟수로 자라요",
     )
@@ -252,11 +252,11 @@ fun LocationConsentScreen(personality: Personality, onAnswer: (Boolean) -> Unit,
     Spacer(Modifier.height(24.dp))
     PanelBox(Modifier.widthIn(max = 820.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            ConsentLine("어디에 쓰나요", "새로운 길을 지도에 켜고, 특산물 지역을 판정하고, 하루 첫 운전 때 날씨를 확인해요.")
+            ConsentLine("어디에 쓰나요", "달린 길을 지도에 켜고, 특산물 지역을 판정하고, 하루 첫 운전 때 날씨를 확인해요.")
             ConsentLine("무엇을 남기나요", "정확한 좌표는 저장하지 않아요. 지도에 그릴 약 1km 단위 위치와, 약 200m 구역을 알아볼 수 없게 바꾼 표시만 이 차에 남겨요.")
             ConsentLine("어디로 보내나요", "기록은 이 차 안에만 있어요. 날씨를 볼 때만 약 10km 단위로 어림한 위치를 날씨 서비스(Open-Meteo)로 보내요.")
             ConsentLine("언제든 바꿀 수 있어요", "홈 화면에서 끄면 그때부터 위치를 쓰지 않아요.")
-            ConsentLine("허용하지 않으면", "카링은 똑같이 잘 자라요. 다만 새 길 판정과 특산물, 날씨 인사는 받을 수 없어요.")
+            ConsentLine("허용하지 않으면", "카링은 똑같이 잘 자라요. 다만 지도에 길이 켜지지 않고, 특산물과 날씨 인사도 받을 수 없어요.")
             ConsentLine("시스템 창이 뜨면", "'허용'을 눌러 주세요. 부드러운 운전 칭찬에 쓰는 차량 속도도 시스템에서는 '위치' 권한으로 함께 묻어요.")
         }
     }

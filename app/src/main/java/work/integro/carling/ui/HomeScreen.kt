@@ -205,7 +205,7 @@ fun HomeScreen(
                 )
             }
         }
-        if (showMap) ExampleMapScreen(data.mapRoutes, onClose = { showMap = false })
+        if (showMap) CarlingMapScreen(data.mapRoutes, onClose = { showMap = false })
         if (showFoods) {
             FoodsDialog(data, onEat = { store.eatFood(it) }, onClose = { showFoods = false })
         }
@@ -367,7 +367,7 @@ private val tutorialSections: List<Triple<String, String, String>> = listOf(
     Triple("🃏", "우리의 트립카드", "트립은 자동으로 쌓여요. 목적지별 최근 20곳을 보여주고, 같은 곳을 다시 가면 맨 위로 올라와요. 모든 트립은 Drive Log에 남아요."),
     Triple("⚡", "성장 에너지 (XP)", "트립·안전운전·연료 보충·교감으로 하루 최대 50. 180일 동안 성장 6번 + 진화 3번을 거쳐요."),
     Triple("⭐", "지도 포인트 (MP)", "트립카드를 저장하면 받아요. 새 길 +3, 익숙한 길 +1 (운행일마다 2장까지). 저장은 그보다 많이 해도 돼요."),
-    Triple("🗺", "지도", "새로운 목적지나 길을 달리면 알림과 함께 지도에 켜져요. 출발지와 도착지를 이은 선이고, 바탕 지도는 예시 그림이에요. 위치 사용이 켜져 있어야 해요."),
+    Triple("🗺", "지도", "처음엔 비어 있어요. 트립카드가 생길 때마다 길이 켜지고, 자주 달릴수록 밝아져요. 길 모양은 실제 달린 길과 달라요. 위치 사용이 켜져 있어야 해요."),
     Triple("🌤", "날씨 인사", "날짜가 바뀐 뒤 첫 운전 때 말을 걸어요. 오전에는 오늘 예보를, 오후에는 지금 날씨를 알려줘요. 위치 사용이 켜져 있어야 해요."),
     Triple("🖼", "배경", "알이 깨어나면 도시·바닷가 해안·맑은 하늘·고요한 숲 중에서 고를 수 있어요. 낮과 밤은 차량 시계에 맞춰 저절로 바뀌어요."),
     Triple("🎁", "아이템", "성장 1이 되면 열려요. 선글라스·목걸이·신발 등 10가지 중 하나를 골라 카링을 꾸며 보세요."),

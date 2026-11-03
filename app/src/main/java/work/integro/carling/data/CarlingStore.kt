@@ -158,6 +158,15 @@ class CarlingStore(context: Context, val clock: GameClock) {
 
     fun dismissMapNotice() = update { it.copy(pendingMapNotice = false) }
 
+    /**
+     * 첫 운전은 위치 동의 전에 끝난다. 동의하면 차가 서 있는 곳(첫 운전의 도착지)에 첫 길을 켠다.
+     */
+    fun lightFirstTrip(lat: Double, lng: Double) = update {
+        if (!it.firstTripDone || it.tripCount > 1 || it.mapRoutes.isNotEmpty()) return@update it
+        val change = it.mapRoutes.afterTrip(null, null, lat, lng, it.firstTripPlaceName, it.firstTripDistanceKm, clock.today().toString())
+        it.copy(mapRoutes = change.routes)
+    }
+
     // ---- 날짜 롤오버 / 단계 계산 ----
 
     /** 날이 바뀌면 오늘 XP·MP를 누적으로 접고 일일 집계를 리셋한다. */
@@ -399,7 +408,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
                     placeCells = trip.placeCell?.let { c -> it.placeCells + c } ?: it.placeCells,
                     newPlaces = it.newPlaces + if (trip.placeCell != null) 1 else 0,
                     lineageScores = mergeScores(it.lineageScores, GrowthRules.scoreTrip(trip.distanceKm, trip.harshEvents, trip.placeCell != null)),
-                    mapRoutes = it.mapRoutes.afterTrip(trip.startLat, trip.startLng, trip.lat, trip.lng, trip.placeCell != null, day).routes,
+                    mapRoutes = it.mapRoutes.afterTrip(trip.startLat, trip.startLng, trip.lat, trip.lng, trip.placeName, trip.distanceKm, day).routes,
                     tripCards = it.tripCards + TripCard(
                         number = 1,
                         date = day,
@@ -449,8 +458,9 @@ class CarlingStore(context: Context, val clock: GameClock) {
         val highlights = mutableListOf<String>()
         val giftFood = trip.region?.takeIf { before.foodGiftDates[it] != day }
         giftFood?.let { highlights += "${it.foodName}을 받았어요" }
-        val mapChange = before.mapRoutes.afterTrip(trip.startLat, trip.startLng, trip.lat, trip.lng, newPlace == true, day)
-        if (mapChange.lit) highlights += "새로운 길이 지도에 켜졌어요"
+        val mapChange = before.mapRoutes.afterTrip(trip.startLat, trip.startLng, trip.lat, trip.lng, trip.placeName, trip.distanceKm, day)
+        if (mapChange.newRoute) highlights += "새로운 길이 지도에 켜졌어요"
+        else if (mapChange.lit) highlights += "달렸던 길이 지도에서 더 밝아졌어요"
         if (newPlace == true) highlights += "처음 보는 풍경"
         cardGotLabel?.let { highlights += "$it 획득" }
 
@@ -485,7 +495,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
             withRegionGift(next, giftFood, day).copy(
                 pendingCard = number,
                 mapRoutes = mapChange.routes,
-                pendingMapNotice = next.pendingMapNotice || mapChange.lit,
+                pendingMapNotice = next.pendingMapNotice || mapChange.newRoute,
                 tripCards = before.tripCards + TripCard(
                     number = number,
                     date = day,

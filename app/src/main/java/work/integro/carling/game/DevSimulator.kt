@@ -4,6 +4,7 @@ import work.integro.carling.data.CarlingStore
 import work.integro.carling.data.TripResult
 import work.integro.carling.navi.NaviPlaces
 import java.time.ZoneId
+import kotlin.random.Random
 
 /**
  * 개발·데모용: 하루를 건너뛰며 '계열에 맞는 하루'(트립 2회 + 교감 + 충전 + 기억 저장)를
@@ -17,6 +18,11 @@ private val SAMPLE_PLACES = listOf(
     Triple("대구 수성못", 35.828, 128.617),
     Triple("해운대", 35.158, 129.160),
 )
+
+private const val HOME_LAT = 37.50
+private const val HOME_LNG = 127.03
+private const val WORK_LAT = 37.57
+private const val WORK_LNG = 126.98
 
 class DevSimulator(private val store: CarlingStore) {
 
@@ -39,9 +45,8 @@ class DevSimulator(private val store: CarlingStore) {
 
     /** 시연용: 다음 지역으로 실제처럼 한 번 달린다. 새 길 알림과 지도 표시를 볼 수 있다. */
     fun driveToNextSample() {
-        val index = store.data.mapRoutes.size
-        val (name, lat, lng) = SAMPLE_PLACES[index % SAMPLE_PLACES.size]
-        val (_, startLat, startLng) = SAMPLE_PLACES[(index + SAMPLE_PLACES.size - 1) % SAMPLE_PLACES.size]
+        val (name, lat, lng) = SAMPLE_PLACES[store.data.mapRoutes.size % SAMPLE_PLACES.size]
+        val (startLat, startLng) = lastStop()
         val end = clock.now()
         store.recordTrip(
             TripResult(
@@ -60,6 +65,19 @@ class DevSimulator(private val store: CarlingStore) {
         )
     }
 
+    /** 지난 트립의 도착지. 첫 트립이면 집. */
+    private fun lastStop(): Pair<Double, Double> =
+        store.data.mapRoutes.lastOrNull()?.let { it.toLat to it.toLng } ?: (HOME_LAT to HOME_LNG)
+
+    /** 탐험은 수도권의 새 곳으로, 아니면 집과 회사를 오간다. */
+    private fun nextStop(explore: Boolean): Pair<Double, Double> {
+        if (explore) {
+            val rnd = Random(seq)
+            return (37.25 + rnd.nextDouble() * 0.5) to (126.85 + rnd.nextDouble() * 0.75)
+        }
+        return if (lastStop() == WORK_LAT to WORK_LNG) HOME_LAT to HOME_LNG else WORK_LAT to WORK_LNG
+    }
+
     private fun simulateOneDay(lineage: Lineage) {
         clock.skipDays(1)
         val hour = 18
@@ -68,6 +86,8 @@ class DevSimulator(private val store: CarlingStore) {
         val explore = lineage == Lineage.WIND || lineage == Lineage.EARTH || lineage == Lineage.TREE
         repeat(2) {
             val start = clock.today().atTime(hour, it * 2).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val (lat, lng) = nextStop(explore)
+            val (startLat, startLng) = lastStop()
             val cell = if (explore) "sim-${lineage.name}-${clock.today()}-${seq++}" else "sim-usual-${lineage.name}"
             store.recordTrip(
                 TripResult(
@@ -77,6 +97,10 @@ class DevSimulator(private val store: CarlingStore) {
                     harshEvents = harsh,
                     placeCell = cell,
                     placeName = if (explore) "새로운 길" else "늘 가던 길",
+                    lat = lat,
+                    lng = lng,
+                    startLat = startLat,
+                    startLng = startLng,
                 ),
             )
             store.data.pendingCard?.let { store.toggleTripSaved(it) }

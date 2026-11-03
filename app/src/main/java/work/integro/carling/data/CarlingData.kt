@@ -160,7 +160,7 @@ data class ActiveTrip(
     val startLng: Double? = null,
 )
 
-/** 지도에 켜진 길 하나. 출발지를 모르면 도착지만 점으로 표시한다. */
+/** 지도에 켜진 길 하나. 출발지가 없으면 도착지를 지나는 고리 길로 그린다. */
 @Serializable
 data class MapRoute(
     val toLat: Double,
@@ -168,41 +168,14 @@ data class MapRoute(
     val fromLat: Double? = null,
     val fromLng: Double? = null,
     val date: String = "",
+    val name: String? = null,
+    val distanceKm: Float? = null,
+    /** 이 길을 달린 횟수. 많을수록 지도에서 더 밝다. */
+    val visits: Int = 1,
 ) {
     fun connects(aLat: Double, aLng: Double, bLat: Double, bLng: Double): Boolean =
         (fromLat == aLat && fromLng == aLng && toLat == bLat && toLng == bLng) ||
             (fromLat == bLat && fromLng == bLng && toLat == aLat && toLng == aLng)
-}
-
-/** 트립이 끝난 뒤 지도에 일어난 변화. */
-data class MapChange(val routes: List<MapRoute>, val newRoute: Boolean, val lit: Boolean)
-
-/** 위치를 약 1km 단위로 어림한다. */
-fun coarseKm(degree: Double): Double = kotlin.math.round(degree * 100.0) / 100.0
-
-/**
- * 끝난 트립을 지도에 반영한다. 처음 가는 목적지나, 처음 이어지는 출발지·도착지 쌍이면 새 길이다.
- * 경로를 따라가며 기록하지 않으므로 '새 경로'는 출발지·도착지가 처음 이어지는 경우를 뜻한다.
- */
-fun List<MapRoute>.afterTrip(
-    fromLat: Double?,
-    fromLng: Double?,
-    toLat: Double?,
-    toLng: Double?,
-    newDestination: Boolean,
-    date: String,
-): MapChange {
-    if (toLat == null || toLng == null) return MapChange(this, newRoute = false, lit = false)
-    val tLat = coarseKm(toLat)
-    val tLng = coarseKm(toLng)
-    val fLat = fromLat?.let(::coarseKm)
-    val fLng = fromLng?.let(::coarseKm)
-    val moved = fLat != null && fLng != null && (fLat != tLat || fLng != tLng)
-    val newRoute = moved && none { it.connects(fLat!!, fLng!!, tLat, tLng) }
-    val lit = newRoute || newDestination
-    if (!lit) return MapChange(this, newRoute = false, lit = false)
-    val route = if (moved) MapRoute(tLat, tLng, fLat, fLng, date) else MapRoute(tLat, tLng, date = date)
-    return MapChange(this + route, newRoute, lit = true)
 }
 
 /** 목적지별 최근 카드. 같은 목적지를 다시 가면 맨 위로 올라가고, [limit]곳까지만 남긴다. */
