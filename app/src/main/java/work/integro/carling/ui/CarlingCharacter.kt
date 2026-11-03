@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.Dp
 import work.integro.carling.data.Personality
+import work.integro.carling.game.Lineage
 import work.integro.carling.game.Stage
 import work.integro.carling.game.Path as GrowthPath
 
@@ -106,6 +107,8 @@ fun CarlingDrawing(
     path: GrowthPath? = null,
     hat: Boolean = false,
     mood: Personality? = null,
+    lineage: Lineage? = null,
+    evoTier: Int = 0,
 ) {
     val transition = rememberInfiniteTransition(label = "carling")
     val breath by transition.animateFloat(0.97f, 1.03f, infiniteRepeatable(tween(1600), RepeatMode.Reverse), label = "breath")
@@ -125,12 +128,15 @@ fun CarlingDrawing(
         drawCircle(Brush.radialGradient(listOf(glow.copy(alpha = 0.55f), Color.Transparent), c, r * 2.0f), r * 2.0f, c)
         drawOval(Color(0x2E000000), c + Offset(-r * 1.0f, r * 1.02f), Size(r * 2.0f, r * 0.3f))
 
+        val tier = if (lineage != null) evoTier else 0
         scale(1f, breath, pivot = c + Offset(0f, r)) {
+            if (tier > 0) drawLineageBack(c, r, lineage!!, tier)
             drawArms(c, r, glow)
             drawFeet(c, r, glow)
             drawBlobBody(c, r, glow)
             drawHeartCore(c, r, beat)
             drawFace(c, r, mood, sparkle = path == GrowthPath.EXPLORER)
+            if (tier > 0) drawLineageFront(c, r, lineage!!, tier)
             if (hat) drawHat(c, r)
         }
         drawSparkles(c, r * 1.7f, lerp(Color.White, glow, 0.3f), twinkle)
@@ -260,6 +266,118 @@ private fun DrawScope.drawHat(c: Offset, r: Float) {
         drawRoundRect(Color.White, Offset(pivot.x - r * 0.38f, pivot.y - r * 0.06f), Size(r * 0.76f, r * 0.12f), CornerRadius(r * 0.06f))
         drawCircle(Color(0xFFFFE27A), r * 0.09f, Offset(pivot.x, pivot.y - r * 0.64f))
     }
+}
+
+// ---------------- 계열 진화 외형 ----------------
+// 진화1(D30)부터 계열 특징이 몸에 자라난다. 진화2·3는 특징을 더 키워 표현한다.
+// (완전한 비행형/수중형 실루엣은 정식 일러스트 영역)
+
+private val WindWing = Color(0xCCBFE6FF)
+private val WindEdge = Color(0xFF8FD0FF)
+private val WaterFin = Color(0xCC79C4FF)
+private val WaterEdge = Color(0xFF3B82E6)
+private val LeafGreen2 = Color(0xFF7BD86A)
+private val LeafDeep2 = Color(0xFF4CA85A)
+private val TireDark = Color(0xFF2A2C38)
+private val LightRim = Color(0xFFFFD54A)
+private val EarthRim = Color(0xFFFF9D5C)
+
+private fun tierSize(tier: Int) = 0.85f + (tier - 1) * 0.4f
+
+/** 몸 뒤에 그리는 특징: 바람=날개, 물=지느러미, 나무=잎. */
+private fun DrawScope.drawLineageBack(c: Offset, r: Float, lineage: Lineage, tier: Int) {
+    val sz = tierSize(tier)
+    when (lineage) {
+        Lineage.WIND -> for (side in listOf(-1f, 1f)) {
+            drawWing(c, r, side, sz, WindWing, WindEdge)
+            if (tier >= 2) drawWing(c, r, side, sz * 0.66f, WindWing.copy(alpha = 0.45f), WindEdge)
+        }
+        Lineage.WATER -> {
+            for (side in listOf(-1f, 1f)) drawFin(c, r, side, sz)
+            drawTailFin(c, r, sz)
+        }
+        Lineage.TREE -> drawLeaves(c, r, sz, tier)
+        else -> Unit
+    }
+}
+
+/** 몸 앞/아래에 그리는 특징: 빛=바퀴+빛줄기, 흙=튼튼한 바퀴. */
+private fun DrawScope.drawLineageFront(c: Offset, r: Float, lineage: Lineage, tier: Int) {
+    val sz = tierSize(tier)
+    when (lineage) {
+        Lineage.LIGHT_RAY -> {
+            for (side in listOf(-1f, 1f)) drawWheel(c + Offset(side * r * 0.56f, r * 0.98f), r * 0.3f * sz, LightRim)
+            drawStar(c + Offset(r * 0.78f, -r * 0.2f), r * 0.16f * sz, LightRim)
+        }
+        Lineage.EARTH -> for (side in listOf(-1f, 1f)) drawWheel(c + Offset(side * r * 0.62f, r * 0.98f), r * 0.36f * sz, EarthRim)
+        else -> Unit
+    }
+}
+
+private fun DrawScope.drawWing(c: Offset, r: Float, side: Float, sz: Float, fill: Color, edge: Color) {
+    val a = Offset(c.x + side * r * 0.55f, c.y - r * 0.15f)
+    val p = Path().apply {
+        moveTo(a.x, a.y)
+        cubicTo(
+            a.x + side * r * 0.2f * sz, a.y - r * 1.35f * sz,
+            a.x + side * r * 1.5f * sz, a.y - r * 1.2f * sz,
+            a.x + side * r * 1.8f * sz, a.y - r * 0.25f * sz,
+        )
+        cubicTo(
+            a.x + side * r * 1.5f * sz, a.y + r * 0.15f * sz,
+            a.x + side * r * 1.0f * sz, a.y + r * 0.35f * sz,
+            a.x + side * r * 0.4f * sz, a.y + r * 0.2f * sz,
+        )
+        close()
+    }
+    drawPath(p, fill)
+    drawPath(p, edge, style = Stroke(r * 0.04f))
+    for (i in 1..2) {
+        val tip = Offset(a.x + side * r * (0.7f + i * 0.45f) * sz, a.y - r * (0.75f - i * 0.2f) * sz)
+        drawLine(edge.copy(alpha = 0.55f), a + Offset(side * r * 0.3f * sz, 0f), tip, r * 0.025f)
+    }
+}
+
+private fun DrawScope.drawFin(c: Offset, r: Float, side: Float, sz: Float) {
+    val a = Offset(c.x + side * r * 0.95f, c.y + r * 0.05f)
+    val p = Path().apply {
+        moveTo(a.x, a.y - r * 0.25f * sz)
+        lineTo(a.x + side * r * 0.95f * sz, a.y + r * 0.1f * sz)
+        lineTo(a.x + side * r * 0.25f * sz, a.y + r * 0.55f * sz)
+        close()
+    }
+    drawPath(p, WaterFin)
+    drawPath(p, WaterEdge, style = Stroke(r * 0.035f))
+}
+
+private fun DrawScope.drawTailFin(c: Offset, r: Float, sz: Float) {
+    val a = Offset(c.x, c.y + r * 0.92f)
+    val p = Path().apply {
+        moveTo(a.x, a.y)
+        lineTo(a.x - r * 0.45f * sz, a.y + r * 0.62f * sz)
+        lineTo(a.x + r * 0.45f * sz, a.y + r * 0.62f * sz)
+        close()
+    }
+    drawPath(p, WaterFin)
+    drawPath(p, WaterEdge, style = Stroke(r * 0.035f))
+}
+
+private fun DrawScope.drawLeaves(c: Offset, r: Float, sz: Float, tier: Int) {
+    val base = c + Offset(0f, -r * 0.92f)
+    val n = 2 + tier
+    val leaf = Brush.linearGradient(listOf(LeafGreen2, LeafDeep2), base - Offset(0f, r * 0.7f), base)
+    for (i in 0 until n) {
+        val ang = -42f + i * (84f / (n - 1))
+        rotate(ang, pivot = base) {
+            drawOval(leaf, base - Offset(r * 0.14f * sz, r * 0.8f * sz), Size(r * 0.28f * sz, r * 0.8f * sz))
+        }
+    }
+}
+
+private fun DrawScope.drawWheel(at: Offset, radius: Float, rim: Color) {
+    drawCircle(TireDark, radius, at)
+    drawCircle(rim, radius, at, style = Stroke(radius * 0.24f))
+    drawCircle(Color(0xFF5A5E70), radius * 0.38f, at)
 }
 
 /** 4갈래 반짝이 — 서비스 시각화 배경의 별빛. */

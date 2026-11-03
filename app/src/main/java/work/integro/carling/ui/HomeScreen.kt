@@ -93,6 +93,8 @@ fun HomeScreen(
                     glow = data.glowColor(),
                     hat = data.wearingHat,
                     mood = personality,
+                    lineage = data.lineage,
+                    evoTier = data.evoTier,
                 )
                 if (vehicle.chargePortOpen) Text("🍙", fontSize = 72.sp)
             }
@@ -280,7 +282,7 @@ private fun ReportDialog(
             fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Ink, textAlign = TextAlign.Center,
         )
         if (report.firstDrive || report.stageUpLabel != null || report.lineageDecidedLabel != null) {
-            CarlingDrawing(size = 200.dp, stage = data.sizeStage, glow = data.glowColor(), hat = data.wearingHat, mood = personality)
+            CarlingDrawing(size = 200.dp, stage = data.sizeStage, glow = data.glowColor(), hat = data.wearingHat, mood = personality, lineage = data.lineage, evoTier = data.evoTier)
         } else {
             Spacer(Modifier.height(16.dp))
         }

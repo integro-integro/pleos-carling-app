@@ -88,6 +88,8 @@ private fun DrivingMode(data: CarlingData) {
                     glow = data.glowColor(),
                     hat = data.wearingHat,
                     mood = personality,
+                    lineage = data.lineage,
+                    evoTier = data.evoTier,
                 )
             }
             Spacer(Modifier.width(12.dp))

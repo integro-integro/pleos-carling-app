@@ -106,6 +106,15 @@ data class CarlingData(
     /** 캐릭터 그림용 크기 단계(마지막 계산값 기준). */
     val sizeStage: Stage get() = GrowthRules.sizeStage(hatched, reachedStage)
 
+    /** 진화 외형 단계: 0=아기/성장, 1=진화1(D30~), 2=진화2(D90~), 3=진화3(완성형). */
+    val evoTier: Int
+        get() = when {
+            reachedStage >= 9 -> 3
+            reachedStage >= 6 -> 2
+            reachedStage >= 3 -> 1
+            else -> 0
+        }
+
     val stageSpec get() = GrowthRules.STAGES[reachedStage.coerceIn(0, GrowthRules.MAX_STAGE)]
 }
 
