@@ -223,6 +223,11 @@ class CarlingStore(context: Context, val clock: GameClock) {
 
     fun toggleVoice() = update { it.copy(voiceOn = !it.voiceOn) }
 
+    fun setScene(value: Scene) = update { it.copy(scene = value) }
+
+    /** 개발용: 낮밤 미리보기. null이면 실제 시각을 따른다. 저장하지 않는다. */
+    var devNightness by mutableStateOf<Float?>(null)
+
     fun dismissTripCard() = update { it.copy(pendingCard = null) }
 
     private fun applyDailyDecay() {

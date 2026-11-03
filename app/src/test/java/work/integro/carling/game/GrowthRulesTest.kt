@@ -38,6 +38,18 @@ class GrowthRulesTest {
     }
 
     @Test
+    fun nightnessFollowsClock() {
+        assertEquals(1f, nightnessAt(0, 0))
+        assertEquals(1f, nightnessAt(5, 29))
+        assertEquals(0.5f, nightnessAt(6, 15))
+        assertEquals(0f, nightnessAt(7, 0))
+        assertEquals(0f, nightnessAt(17, 59))
+        assertEquals(0.5f, nightnessAt(18, 45))
+        assertEquals(1f, nightnessAt(19, 30))
+        assertEquals(1f, nightnessAt(23, 59))
+    }
+
+    @Test
     fun savingPaysMpOnlyForFirstTwoCardsOfTheDay() {
         assertEquals(3, GrowthRules.saveMp(newPlace = true, alreadyRewarded = false, rewardedOnDay = 0))
         assertEquals(1, GrowthRules.saveMp(newPlace = false, alreadyRewarded = false, rewardedOnDay = 1))

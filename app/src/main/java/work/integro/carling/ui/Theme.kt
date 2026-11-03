@@ -1,6 +1,5 @@
 package work.integro.carling.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -14,17 +13,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.random.Random
+import work.integro.carling.data.Scene
 
 // 설계서의 밤하늘 톤
 val Night = Color(0xFF0B1030)
@@ -55,29 +51,15 @@ private val CarlingColors = darkColorScheme(
 val LocalCompact = staticCompositionLocalOf { false }
 
 @Composable
-fun CarlingTheme(content: @Composable () -> Unit) {
+fun CarlingTheme(scene: Scene, nightnessOverride: Float? = null, content: @Composable () -> Unit) {
+    val nightness = nightnessOverride ?: rememberRealNightness()
     MaterialTheme(colorScheme = CarlingColors) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val compact = maxWidth < 1100.dp || maxWidth < maxHeight
-            CompositionLocalProvider(LocalCompact provides compact) {
-                NightSky()
+            CompositionLocalProvider(LocalCompact provides compact, LocalNightness provides nightness) {
+                SceneBackground(scene, nightness)
                 content()
             }
-        }
-    }
-}
-
-/** 별이 흩어진 밤하늘 배경. */
-@Composable
-fun NightSky() {
-    val stars = remember {
-        val rnd = Random(7)
-        List(60) { Triple(rnd.nextFloat(), rnd.nextFloat(), rnd.nextFloat()) }
-    }
-    Canvas(Modifier.fillMaxSize()) {
-        drawRect(Brush.verticalGradient(listOf(NightDeep, Night, Color(0xFF161C4E))))
-        stars.forEach { (x, y, s) ->
-            drawCircle(Color.White.copy(alpha = 0.15f + s * 0.45f), 1f + s * 2.2f, Offset(x * size.width, y * size.height))
         }
     }
 }

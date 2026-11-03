@@ -87,6 +87,7 @@ data class CarlingData(
 
     // 설정
     val voiceOn: Boolean = true,
+    val scene: Scene = Scene.CLEAR_SKY,
 ) {
     /** 오늘 쌓은 XP(상한 50은 항목별 상한으로 자연 충족). */
     val xpToday: Int
@@ -116,6 +117,15 @@ data class CarlingData(
         }
 
     val stageSpec get() = GrowthRules.STAGES[reachedStage.coerceIn(0, GrowthRules.MAX_STAGE)]
+}
+
+/** 고를 수 있는 배경. 낮과 밤은 시계를 따른다. */
+@Serializable
+enum class Scene(val label: String) {
+    CITY("도시"),
+    COAST("바닷가 해안"),
+    CLEAR_SKY("맑은 하늘"),
+    FOREST("고요한 숲"),
 }
 
 /** 첫 만남 질문(구). */

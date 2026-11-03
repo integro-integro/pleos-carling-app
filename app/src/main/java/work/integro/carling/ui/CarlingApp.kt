@@ -24,7 +24,7 @@ import work.integro.carling.vehicle.VehicleState
 
 @Composable
 fun CarlingApp(store: CarlingStore, vehicle: VehicleState, onLocationAllowed: () -> Unit = {}) {
-    CarlingTheme {
+    CarlingTheme(store.data.scene, store.devNightness) {
         // 주행 중에는 돌보기 화면을 아예 그리지 않는다 (안전 원칙: 주행 중 터치 없음)
         if (vehicle.isDriving) {
             DrivingMode(store.data)
@@ -75,7 +75,7 @@ private fun DrivingMode(data: CarlingData) {
             Modifier
                 .align(Alignment.BottomStart)
                 .padding(32.dp)
-                .background(Color(0x40FFFFFF), RoundedCornerShape(48.dp))
+                .background(Color(0xA6060A24), RoundedCornerShape(48.dp))
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {

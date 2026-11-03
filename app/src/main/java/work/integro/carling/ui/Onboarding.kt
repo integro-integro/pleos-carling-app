@@ -1,5 +1,6 @@
 package work.integro.carling.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -59,7 +60,7 @@ private fun Step(onBack: (() -> Unit)? = null, content: @Composable () -> Unit) 
         ) { content() }
         if (onBack != null) {
             TextButton(onClick = onBack, modifier = Modifier.align(Alignment.TopStart).padding(12.dp)) {
-                Text("‹ 뒤로", fontSize = 22.sp, color = Muted)
+                Text("‹ 뒤로", fontSize = 22.sp, color = Ink, modifier = Modifier.onScene())
             }
         }
     }
@@ -77,13 +78,14 @@ fun EggArrivalScreen(onDevFirstDrive: (() -> Unit)? = null) = Step {
     Text(
         "고르는 것도, 설정도 없어요.\n그냥 출발하면, 함께 달린 길이 이 알을 깨워요.",
         fontSize = if (compact) 18.sp else 22.sp,
-        color = Muted,
+        color = Ink,
         lineHeight = 32.sp,
         textAlign = TextAlign.Center,
+        modifier = Modifier.onScene(),
     )
     if (onDevFirstDrive != null) {
         Spacer(Modifier.height(28.dp))
-        TextButton(onClick = onDevFirstDrive) { Text("🛠 첫 운전 시뮬레이트", fontSize = 16.sp) }
+        TextButton(onClick = onDevFirstDrive) { Text("🛠 첫 운전 시뮬레이트", fontSize = 16.sp, color = Ink, modifier = Modifier.onScene()) }
     }
 }
 
@@ -97,7 +99,7 @@ fun AwakenScreen(data: CarlingData, onWake: () -> Unit) = Step {
         indication = null,
         onClick = onWake,
     )
-    Text("TRIP CARD #001", fontSize = 18.sp, color = Gold, fontWeight = FontWeight.Bold)
+    Text("TRIP CARD #001", fontSize = 18.sp, color = Gold, fontWeight = FontWeight.Bold, modifier = Modifier.onScene())
     Spacer(Modifier.height(12.dp))
     PanelBox(Modifier.widthIn(max = 640.dp).then(wake)) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -115,7 +117,7 @@ fun AwakenScreen(data: CarlingData, onWake: () -> Unit) = Step {
     Spacer(Modifier.height(16.dp))
     Button(onClick = onWake, modifier = Modifier.height(64.dp).width(260.dp)) { Text("알 깨우기", fontSize = 24.sp) }
     Spacer(Modifier.height(8.dp))
-    Text("알이나 카드를 톡 누르면 카링이 고개를 내밀어요", fontSize = 18.sp, color = Muted)
+    Text("알이나 카드를 톡 누르면 카링이 고개를 내밀어요", fontSize = 18.sp, color = Ink, modifier = Modifier.onScene())
 }
 
 @Composable
@@ -142,7 +144,7 @@ fun NameScreen(personality: Personality, onName: (String) -> Unit, onBack: (() -
             singleLine = true,
             textStyle = androidx.compose.ui.text.TextStyle(fontSize = 28.sp, color = Ink),
             placeholder = { Text("이름 (최대 10자)", fontSize = 24.sp) },
-            modifier = Modifier.width(if (compact) 360.dp else 480.dp),
+            modifier = Modifier.background(Panel.copy(alpha = 0.92f)).width(if (compact) 360.dp else 480.dp),
         )
         Spacer(Modifier.width(20.dp))
         Button(onClick = { onName(text.trim()) }, enabled = text.isNotBlank(), modifier = Modifier.height(72.dp)) {
@@ -169,11 +171,11 @@ fun FirstPetScreen(name: String, personality: Personality, onPet: () -> Unit, on
     if (!petted) {
         Speech("'$name'! 정말 마음에 들어. 한 번 쓰다듬어 줄래요?")
         Spacer(Modifier.height(12.dp))
-        Text("카링을 톡 쓰다듬어 보세요", fontSize = 20.sp, color = Muted)
+        Text("카링을 톡 쓰다듬어 보세요", fontSize = 20.sp, color = Ink, modifier = Modifier.onScene())
     } else {
         Speech("와아, 간지러워! 이렇게 같이 지내는 거예요.")
         Spacer(Modifier.height(10.dp))
-        Text("+5 XP · 오늘 첫 교감", fontSize = 22.sp, color = Gold, fontWeight = FontWeight.Bold)
+        Text("+5 XP · 오늘 첫 교감", fontSize = 22.sp, color = Gold, fontWeight = FontWeight.Bold, modifier = Modifier.onScene())
         Spacer(Modifier.height(18.dp))
         val quests = listOf("쓰다듬기" to "💗", "밥 주기" to "🍙", "놀아주기" to "🎈", "말 걸기" to "💬")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.widthIn(max = 720.dp)) {
@@ -219,7 +221,7 @@ fun FirstMapScreen(name: String, personality: Personality, onDone: () -> Unit, o
         }
     }
     Spacer(Modifier.height(4.dp))
-    Text("내일은 어떤 길을 같이 달릴까요?", fontSize = 22.sp, color = Ink, textAlign = TextAlign.Center)
+    Text("내일은 어떤 길을 같이 달릴까요?", fontSize = 22.sp, color = Ink, textAlign = TextAlign.Center, modifier = Modifier.onScene())
     Spacer(Modifier.height(24.dp))
     Button(onClick = onDone, modifier = Modifier.height(64.dp).width(240.dp)) { Text("알겠어요", fontSize = 24.sp) }
 }

@@ -63,6 +63,7 @@ fun HomeScreen(
     var showTripCards by remember { mutableStateOf(false) }
     var openCard by remember { mutableStateOf<Int?>(null) }
     var showMap by remember { mutableStateOf(false) }
+    var showScenes by remember { mutableStateOf(false) }
     var showTutorial by remember { mutableStateOf(false) }
     var justFed by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { greetedToday = store.greetIfNewDay() }
@@ -79,7 +80,7 @@ fun HomeScreen(
     val playground = @Composable { areaModifier: Modifier ->
         Wandering(
             size = carlingSize,
-            enabled = data.pendingCard == null && !showTripCards && openCard == null && !showMap && !showTutorial,
+            enabled = data.pendingCard == null && !showTripCards && openCard == null && !showMap && !showTutorial && !showScenes,
             personality = personality,
             tapLines = personality.tapLines,
             onPetted = store::pet,
@@ -100,8 +101,10 @@ fun HomeScreen(
         }
     }
     val caption = @Composable {
-        Text(name, fontSize = 42.sp, fontWeight = FontWeight.Bold, color = Ink)
-        Text(stageTitle(data), fontSize = 22.sp, color = Gold)
+        Column(Modifier.onScene(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(name, fontSize = 42.sp, fontWeight = FontWeight.Bold, color = Ink)
+            Text(stageTitle(data), fontSize = 22.sp, color = Gold)
+        }
         Spacer(Modifier.height(14.dp))
         Speech(line)
     }
@@ -112,6 +115,7 @@ fun HomeScreen(
             onFeed = { store.feed(); justFed = true },
             onTripCards = { showTripCards = true },
             onMap = { showMap = true },
+            onScenes = { showScenes = true },
             onLocationToggle = { allowed ->
                 store.setLocationConsent(allowed)
                 if (allowed) onLocationAllowed()
@@ -147,7 +151,7 @@ fun HomeScreen(
 
         // 도움말(튜토리얼) — 언제든 열어 다시 볼 수 있다
         TextButton(onClick = { showTutorial = true }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
-            Text("❓ 도움말", fontSize = 18.sp, color = Muted)
+            Text("❓ 도움말", fontSize = 18.sp, color = Ink, modifier = Modifier.onScene())
         }
 
         if (BuildConfig.DEBUG) DevPanel(store, vehicle, Modifier.align(Alignment.TopStart).padding(12.dp))
@@ -175,6 +179,7 @@ fun HomeScreen(
             }
         }
         if (showMap) ExampleMapScreen(onClose = { showMap = false })
+        if (showScenes) ScenePickerDialog(data.scene, onSelect = store::setScene, onClose = { showScenes = false })
         if (showTutorial) TutorialDialog(onClose = { showTutorial = false })
     }
 }
@@ -186,6 +191,7 @@ private fun StatusPanel(
     onFeed: () -> Unit,
     onTripCards: () -> Unit,
     onMap: () -> Unit,
+    onScenes: () -> Unit,
     onLocationToggle: (Boolean) -> Unit,
 ) {
     val today = store.clock.today()
@@ -265,6 +271,7 @@ private fun StatusPanel(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 GameSlot("🎈", "놀아주기", enabled = "PLAY" !in data.intimacyActionsToday, modifier = Modifier.weight(1f)) { store.interact("PLAY") }
                 GameSlot("💬", "말 걸기", enabled = "TALK" !in data.intimacyActionsToday, modifier = Modifier.weight(1f)) { store.interact("TALK") }
+                GameSlot("🖼", "배경", enabled = true, modifier = Modifier.weight(1f), onClick = onScenes)
             }
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -297,6 +304,7 @@ private val tutorialSections: List<Triple<String, String, String>> = listOf(
     Triple("⚡", "성장 에너지 (XP)", "트립·안전운전·연료 보충·교감으로 하루 최대 50. 180일 동안 성장 6번 + 진화 3번을 거쳐요."),
     Triple("⭐", "지도 포인트 (MP)", "트립카드를 저장하면 받아요. 새 길 +3, 익숙한 길 +1 (운행일마다 2장까지). 저장은 그보다 많이 해도 돼요."),
     Triple("🗺", "지도", "지금 지도는 예시 화면이에요. 지역 버튼이나 +, −로 움직여 볼 수 있고, 내 트립 경로는 아직 표시되지 않아요."),
+    Triple("🖼", "배경", "도시·바닷가 해안·맑은 하늘·고요한 숲 중에서 고를 수 있어요. 낮과 밤은 차량 시계에 맞춰 저절로 바뀌어요."),
     Triple("🎨", "계열", "운전 습관에 따라 D14에 계열(바람·빛·나무·물·흙)이 정해지고, 몸 색과 외형이 바뀌어요."),
     Triple("✨", "진화", "D30·D90·D180에 진화카드를 받고 특별 퀘스트를 채우면 진화해요. 단계는 건너뛰지 않아요."),
     Triple("💗", "돌보기", "쓰다듬기·밥 주기·놀아주기·말 걸기로 교감해요 (하루 서로 다른 2가지 행동까지 XP)."),
@@ -356,7 +364,7 @@ private fun DevPanel(store: CarlingStore, vehicle: VehicleState, modifier: Modif
     val simulator = remember(store) { DevSimulator(store) }
 
     Column(modifier) {
-        TextButton(onClick = { open = !open }) { Text(if (open) "개발자 도구 ▲" else "🛠", fontSize = 18.sp) }
+        TextButton(onClick = { open = !open }) { Text(if (open) "개발자 도구 ▲" else "🛠", fontSize = 18.sp, color = Ink, modifier = Modifier.onScene()) }
         if (!open) return@Column
         Column(
             Modifier.background(Panel, RoundedCornerShape(16.dp)).padding(16.dp),
@@ -381,6 +389,11 @@ private fun DevPanel(store: CarlingStore, vehicle: VehicleState, modifier: Modif
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(onClick = { simulator.advanceToStage(6, lineage) }) { Text("진화2까지") }
                 OutlinedButton(onClick = { simulator.advanceToStage(9, lineage) }) { Text("완성형까지") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf<Pair<String, Float?>>("실제 시각" to null, "낮" to 0f, "노을" to 0.5f, "밤" to 1f).forEach { (label, value) ->
+                    FilterChip(selected = store.devNightness == value, onClick = { store.devNightness = value }, label = { Text(label) })
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(onClick = { store.clock.skipDays(1) }) { Text("다음 날로") }
