@@ -78,6 +78,25 @@ class CarlingStore(context: Context, val clock: GameClock) {
 
     fun finishGuide() = update { it.copy(guideSeen = true) }
 
+    /** 첫 만남 온보딩에서 한 단계 뒤로 — 실수로 눌렀거나 다시 보고 싶을 때. */
+    fun onboardingBack() = update {
+        when {
+            // 위치 동의 → 지도 첫 불빛
+            it.name != null && it.firstPetDone && it.guideSeen && it.locationConsent == null ->
+                it.copy(guideSeen = false)
+            // 지도 첫 불빛 → 첫 교감
+            it.name != null && it.firstPetDone && !it.guideSeen ->
+                it.copy(firstPetDone = false)
+            // 첫 교감 → 이름 짓기
+            it.name != null && !it.firstPetDone ->
+                it.copy(name = null)
+            // 이름 짓기 → 알 깨우기(다시 깨우기 전 상태)
+            it.hatched && it.name == null ->
+                it.copy(hatched = false, personality = null, birthDate = null)
+            else -> it
+        }
+    }
+
     /** 위치는 '처음 간 곳/다시 찾은 곳' 판정에만 쓴다. 언제든 바꿀 수 있다. */
     fun setLocationConsent(allowed: Boolean) = update { it.copy(locationConsent = allowed) }
 

@@ -1,5 +1,6 @@
 package work.integro.carling.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -33,11 +34,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.min
 import work.integro.carling.BuildConfig
 import work.integro.carling.data.CarlingData
 import work.integro.carling.data.CarlingStore
@@ -65,6 +70,8 @@ fun HomeScreen(
     val compact = LocalCompact.current
     var greetedToday by remember { mutableStateOf(false) }
     var showMemories by remember { mutableStateOf(false) }
+    var showMap by remember { mutableStateOf(false) }
+    var showTutorial by remember { mutableStateOf(false) }
     var justFed by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { greetedToday = store.greetIfNewDay() }
 
@@ -112,6 +119,7 @@ fun HomeScreen(
             data = data,
             onFeed = { store.feed(); justFed = true },
             onMemories = { showMemories = true },
+            onMap = { showMap = true },
             onLocationToggle = { allowed ->
                 store.setLocationConsent(allowed)
                 if (allowed) onLocationAllowed()
@@ -145,12 +153,19 @@ fun HomeScreen(
             }
         }
 
+        // 도움말(튜토리얼) — 언제든 열어 다시 볼 수 있다
+        TextButton(onClick = { showTutorial = true }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
+            Text("❓ 도움말", fontSize = 18.sp, color = Muted)
+        }
+
         if (BuildConfig.DEBUG) DevPanel(store, vehicle, Modifier.align(Alignment.TopStart).padding(12.dp))
 
         data.pendingReport?.let { report ->
             ReportDialog(store, report, data, personality, onClose = store::dismissReport)
         }
         if (showMemories) MemoriesDialog(data.memories, onClose = { showMemories = false })
+        if (showMap) MapDialog(data, onClose = { showMap = false })
+        if (showTutorial) TutorialDialog(onClose = { showTutorial = false })
     }
 }
 
@@ -160,6 +175,7 @@ private fun StatusPanel(
     data: CarlingData,
     onFeed: () -> Unit,
     onMemories: () -> Unit,
+    onMap: () -> Unit,
     onLocationToggle: (Boolean) -> Unit,
 ) {
     val today = store.clock.today()
@@ -241,10 +257,11 @@ private fun StatusPanel(
                 GameSlot("💬", "말 걸기", enabled = "TALK" !in data.intimacyActionsToday, modifier = Modifier.weight(1f)) { store.interact("TALK") }
             }
             Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 GameSlot("📖", "추억", enabled = true, badge = data.memories.size, modifier = Modifier.weight(1f), onClick = onMemories)
+                GameSlot("🗺", "지도", enabled = true, badge = data.memories.count { it.saved }, modifier = Modifier.weight(1f), onClick = onMap)
                 GameSlot("🎩", if (data.wearingHat) "벗기" else "쓰기", enabled = data.hasHat, selected = data.wearingHat, modifier = Modifier.weight(1f), onClick = store::toggleHat)
-                Column(Modifier.weight(1.3f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.weight(1.2f), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("📍 위치", style = gameText(17.sp))
                     Spacer(Modifier.height(6.dp))
                     GameToggle(checked = data.locationConsent == true, onChange = onLocationToggle)
@@ -356,6 +373,133 @@ private fun MemoriesDialog(memories: List<MemoryCard>, onClose: () -> Unit) {
                         Text(card.title, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Gold)
                         Text(card.text, fontSize = 20.sp, lineHeight = 30.sp, color = Ink)
                     }
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = onClose, modifier = Modifier.height(60.dp).width(200.dp)) { Text("닫기", fontSize = 24.sp) }
+    }
+}
+
+/** 카링의 지도 — 어두운 지도에 '기억으로 저장'한 길이 하나씩 켜진다. */
+@Composable
+private fun MapDialog(data: CarlingData, onClose: () -> Unit) {
+    val saved = data.memories.filter { it.saved }
+    val roadColor = data.lineage?.let { Color(it.color) } ?: BaseGlow
+    Scrim {
+        Text("카링의 지도", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Ink)
+        Text("함께 달린 길이 하나씩 켜져요", fontSize = 18.sp, color = Muted)
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+            MapStat("밝혀진 길", saved.size)
+            MapStat("함께한 날", data.togetherDays.size)
+        }
+        Spacer(Modifier.height(16.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(420.dp)
+                .background(Color(0xFF0A1024), RoundedCornerShape(20.dp)),
+        ) {
+            Canvas(Modifier.fillMaxSize().padding(16.dp)) {
+                val w = size.width
+                val h = size.height
+                // 희미한 격자
+                val grid = Color.White.copy(alpha = 0.05f)
+                for (i in 1..7) {
+                    drawLine(grid, Offset(w * i / 8f, 0f), Offset(w * i / 8f, h), 1f)
+                    drawLine(grid, Offset(0f, h * i / 8f), Offset(0f + w, h * i / 8f), 1f)
+                }
+                val n = min(saved.size, 24)
+                if (n == 0) return@Canvas
+                val cols = if (n <= 1) 1 else 4
+                val rows = (n + cols - 1) / cols
+                val mx = w * 0.08f
+                val my = h * 0.14f
+                val stepX = if (cols > 1) (w - 2 * mx) / (cols - 1) else 0f
+                val stepY = if (rows > 1) (h - 2 * my) / (rows - 1) else 0f
+                fun jitter(i: Int, salt: Int): Float {
+                    val v = (i * 73856093) xor (salt * 19349663)
+                    return ((v ushr 8) and 0xFF) / 255f
+                }
+                val pts = ArrayList<Offset>(n)
+                for (i in 0 until n) {
+                    val row = i / cols
+                    val colRaw = i % cols
+                    val col = if (row % 2 == 0) colRaw else (cols - 1 - colRaw)
+                    val jx = (jitter(i, 1) - 0.5f) * stepX * 0.35f
+                    val jy = (jitter(i, 2) - 0.5f) * stepY * 0.3f
+                    val x = if (cols > 1) mx + col * stepX + jx else w / 2f
+                    val y = if (rows > 1) my + row * stepY + jy else h / 2f
+                    pts += Offset(x, y)
+                }
+                // 길(선) — 발견 순서대로 이어진다
+                for (i in 1 until pts.size) {
+                    drawLine(roadColor.copy(alpha = 0.45f), pts[i - 1], pts[i], 4f, cap = StrokeCap.Round)
+                }
+                // 노드 — 나중에 켜진 길일수록 밝게
+                pts.forEachIndexed { i, p ->
+                    val bright = 0.5f + 0.5f * (i + 1f) / pts.size
+                    drawCircle(Brush.radialGradient(listOf(roadColor.copy(alpha = 0.5f * bright), Color.Transparent), p, 26f), 26f, p)
+                    drawCircle(roadColor.copy(alpha = bright), 7f, p)
+                    drawCircle(Color.White.copy(alpha = 0.9f), 2.5f, p + Offset(-1.5f, -1.5f))
+                }
+            }
+            if (saved.isEmpty()) {
+                Text(
+                    "아직 밝혀진 길이 없어요.\n운전을 마치면 '기억으로 저장'으로 길을 켜요.",
+                    fontSize = 20.sp, color = Muted, textAlign = TextAlign.Center, lineHeight = 30.sp,
+                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                )
+            }
+        }
+        if (saved.size > 24) {
+            Spacer(Modifier.height(8.dp))
+            Text("최근 24개의 길을 보여줘요 (전체 ${saved.size}개)", fontSize = 15.sp, color = Muted)
+        }
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = onClose, modifier = Modifier.height(60.dp).width(200.dp)) { Text("닫기", fontSize = 24.sp) }
+    }
+}
+
+@Composable
+private fun MapStat(label: String, value: Int) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("$value", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Gold)
+        Text(label, fontSize = 16.sp, color = Muted)
+    }
+}
+
+/**
+ * 튜토리얼(도움말) 내용 — 한곳에서 관리한다.
+ * ⚠ 기능을 추가·변경하면 여기 항목도 함께 업데이트할 것.
+ */
+private val tutorialSections: List<Triple<String, String, String>> = listOf(
+    Triple("🥚", "첫 만남", "알은 모두에게 하나, 고르지 않아요. 첫 운전이 알을 깨우고, 이름을 지어주면 나만의 카링이 돼요."),
+    Triple("🚗", "함께 달리기", "운전을 마칠 때마다 트립카드 한 장이 생겨요. 거리가 아니라 '함께한 횟수'로 자라요."),
+    Triple("⚡", "성장 에너지 (XP)", "트립·안전운전·연료 보충·교감으로 하루 최대 50. 180일 동안 성장 6번 + 진화 3번을 거쳐요."),
+    Triple("🗺", "지도 포인트 (MP)", "도착 후 '기억으로 저장'하면 지도에 길이 켜져요. 새 길 +3, 익숙한 길 +1 (하루 2장). 지도 버튼으로 볼 수 있어요."),
+    Triple("🎨", "계열", "운전 습관에 따라 D14에 계열(바람·빛·나무·물·흙)이 정해지고, 몸 색과 외형이 바뀌어요."),
+    Triple("✨", "진화", "D30·D90·D180에 진화카드를 받고 특별 퀘스트를 채우면 진화해요. 단계는 건너뛰지 않아요."),
+    Triple("💗", "돌보기", "쓰다듬기·밥 주기·놀아주기·말 걸기로 교감해요 (하루 서로 다른 2가지 행동까지 XP)."),
+    Triple("↩", "되돌아가기", "첫 만남 중에는 화면 왼쪽 위 '뒤로'로 이전 단계를 다시 볼 수 있어요."),
+)
+
+@Composable
+private fun TutorialDialog(onClose: () -> Unit) {
+    Scrim {
+        Text("카링 도움말", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Ink)
+        Text("카링과 함께 자라는 방법", fontSize = 18.sp, color = Muted)
+        Spacer(Modifier.height(16.dp))
+        tutorialSections.forEach { (icon, title, body) ->
+            Row(
+                Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(icon, fontSize = 30.sp, modifier = Modifier.width(52.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Gold)
+                    Text(body, fontSize = 19.sp, lineHeight = 28.sp, color = Ink)
                 }
             }
         }

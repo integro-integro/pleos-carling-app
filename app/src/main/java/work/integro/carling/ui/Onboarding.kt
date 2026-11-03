@@ -3,6 +3,7 @@ package work.integro.carling.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -46,15 +47,22 @@ import work.integro.carling.data.Personality
  */
 
 @Composable
-private fun Step(content: @Composable () -> Unit) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 32.dp, vertical = 40.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) { content() }
+private fun Step(onBack: (() -> Unit)? = null, content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 32.dp, vertical = 40.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) { content() }
+        if (onBack != null) {
+            TextButton(onClick = onBack, modifier = Modifier.align(Alignment.TopStart).padding(12.dp)) {
+                Text("‹ 뒤로", fontSize = 22.sp, color = Muted)
+            }
+        }
+    }
 }
 
 /** 1 · 당신에게 도착한 알 — 첫 운전이 알을 깨운다. 누른다고 깨지 않는다. */
@@ -79,13 +87,19 @@ fun EggArrivalScreen(onDevFirstDrive: (() -> Unit)? = null) = Step {
     }
 }
 
-/** 2 · 트립카드 #001 — 알을 톡 터치해 깨우기. */
+/** 2 · 트립카드 #001 — 카드나 알을 톡 터치해 깨우기. */
 @Composable
 fun AwakenScreen(data: CarlingData, onWake: () -> Unit) = Step {
     val compact = LocalCompact.current
+    // 카드 어디를 눌러도 깨어나도록 — 카드가 눌리는 것처럼 보이던 혼란을 없앤다
+    val wake = Modifier.clickable(
+        interactionSource = remember { MutableInteractionSource() },
+        indication = null,
+        onClick = onWake,
+    )
     Text("TRIP CARD #001", fontSize = 18.sp, color = Gold, fontWeight = FontWeight.Bold)
     Spacer(Modifier.height(12.dp))
-    PanelBox(Modifier.widthIn(max = 640.dp)) {
+    PanelBox(Modifier.widthIn(max = 640.dp).then(wake)) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             data.firstTripPlaceName?.let { TripCardLine("여정", it) }
             val dist = data.firstTripDistanceKm?.takeIf { it > 0.05f }?.let { " · %.1fkm".format(it) } ?: ""
@@ -97,16 +111,11 @@ fun AwakenScreen(data: CarlingData, onWake: () -> Unit) = Step {
     Spacer(Modifier.height(24.dp))
     Speech("함께 달린 길이 첫 트립카드가 되었어요. 알을 톡 깨워줄래요?")
     Spacer(Modifier.height(16.dp))
-    EggDrawing(
-        size = if (compact) 240.dp else 300.dp,
-        modifier = Modifier.clickable(
-            interactionSource = remember { MutableInteractionSource() },
-            indication = null,
-            onClick = onWake,
-        ),
-    )
-    Spacer(Modifier.height(12.dp))
-    Text("알을 톡 누르면 카링이 고개를 내밀어요", fontSize = 20.sp, color = Muted)
+    EggDrawing(size = if (compact) 240.dp else 300.dp, modifier = wake)
+    Spacer(Modifier.height(16.dp))
+    Button(onClick = onWake, modifier = Modifier.height(64.dp).width(260.dp)) { Text("알 깨우기", fontSize = 24.sp) }
+    Spacer(Modifier.height(8.dp))
+    Text("알이나 카드를 톡 누르면 카링이 고개를 내밀어요", fontSize = 18.sp, color = Muted)
 }
 
 @Composable
@@ -119,7 +128,7 @@ private fun TripCardLine(label: String, value: String) {
 
 /** 3 · 이름 지어주기 — 이름을 부르면 반응하기 시작하고, 이때부터 나만의 카링이 된다. */
 @Composable
-fun NameScreen(personality: Personality, onName: (String) -> Unit) = Step {
+fun NameScreen(personality: Personality, onName: (String) -> Unit, onBack: (() -> Unit)? = null) = Step(onBack) {
     var text by remember { mutableStateOf("") }
     val compact = LocalCompact.current
     CarlingDrawing(if (compact) 240.dp else 300.dp, mood = personality)
@@ -144,7 +153,7 @@ fun NameScreen(personality: Personality, onName: (String) -> Unit) = Step {
 
 /** 4 · 첫 교감 — 처음 쓰다듬으면 카링이 반응한다. 친밀도 퀘스트를 여기서 처음 배운다. */
 @Composable
-fun FirstPetScreen(name: String, personality: Personality, onPet: () -> Unit) = Step {
+fun FirstPetScreen(name: String, personality: Personality, onPet: () -> Unit, onBack: (() -> Unit)? = null) = Step(onBack) {
     val compact = LocalCompact.current
     var petted by remember { mutableStateOf(false) }
     CarlingDrawing(
@@ -184,7 +193,7 @@ fun FirstPetScreen(name: String, personality: Personality, onPet: () -> Unit) = 
 
 /** 5 · 지도의 첫 불빛, 내일의 약속 — 어두웠던 지도에 오늘 달린 길 하나가 켜진다. */
 @Composable
-fun FirstMapScreen(name: String, personality: Personality, onDone: () -> Unit) = Step {
+fun FirstMapScreen(name: String, personality: Personality, onDone: () -> Unit, onBack: (() -> Unit)? = null) = Step(onBack) {
     val compact = LocalCompact.current
     CarlingDrawing(if (compact) 200.dp else 240.dp, mood = personality)
     Spacer(Modifier.height(8.dp))
@@ -217,7 +226,7 @@ fun FirstMapScreen(name: String, personality: Personality, onDone: () -> Unit) =
 
 /** 위치 사용 동의 — 기획안 데이터 원칙: 위치 활용은 이용자 동의 기반. */
 @Composable
-fun LocationConsentScreen(personality: Personality, onAnswer: (Boolean) -> Unit) = Step {
+fun LocationConsentScreen(personality: Personality, onAnswer: (Boolean) -> Unit, onBack: (() -> Unit)? = null) = Step(onBack) {
     val compact = LocalCompact.current
     CarlingDrawing(if (compact) 200.dp else 240.dp, mood = personality)
     Speech("처음 가는 곳과 자주 가는 곳을 알아보고 싶어요. 위치를 써도 될까요?")

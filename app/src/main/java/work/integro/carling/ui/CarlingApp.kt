@@ -53,15 +53,15 @@ private fun ParkedMode(store: CarlingStore, vehicle: VehicleState, onLocationAll
         // 2 · 트립카드 #001 → 알을 톡 터치해 깨우기
         !data.hatched -> AwakenScreen(data, onWake = store::hatch)
         // 3 · 이름 지어주기
-        name == null -> NameScreen(personality, onName = store::giveName)
+        name == null -> NameScreen(personality, onName = store::giveName, onBack = store::onboardingBack)
         // 4 · 첫 교감 — 쓰다듬기
-        !data.firstPetDone -> FirstPetScreen(name, personality, onPet = store::completeFirstPet)
+        !data.firstPetDone -> FirstPetScreen(name, personality, onPet = store::completeFirstPet, onBack = store::onboardingBack)
         // 5 · 지도의 첫 불빛, 내일의 약속
-        !data.guideSeen -> FirstMapScreen(name, personality, onDone = store::finishGuide)
+        !data.guideSeen -> FirstMapScreen(name, personality, onDone = store::finishGuide, onBack = store::onboardingBack)
         data.locationConsent == null -> LocationConsentScreen(personality, onAnswer = { allowed ->
             store.setLocationConsent(allowed)
             if (allowed) onLocationAllowed()
-        })
+        }, onBack = store::onboardingBack)
         else -> HomeScreen(store, data, personality, name, vehicle, onLocationAllowed)
     }
 }
