@@ -84,9 +84,8 @@ private fun DrivingMode(data: CarlingData) {
             } else {
                 CarlingDrawing(
                     size = 120.dp,
-                    stage = data.stage,
+                    stage = data.sizeStage,
                     glow = data.glowColor(),
-                    path = data.evolution?.path,
                     hat = data.wearingHat,
                     mood = personality,
                 )
