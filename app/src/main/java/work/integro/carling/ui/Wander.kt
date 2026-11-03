@@ -284,8 +284,14 @@ class CarlingMotion internal constructor(private val scope: CoroutineScope) {
     }
 }
 
+/** 돌아다니는 영역에서 배경의 땅이 시작되는 높이(위에서부터 비율). */
+private const val GROUND_TOP = 0.72f
+
+/** 그림 안에서 카링의 발이 있는 높이(위에서부터 비율). */
+private const val FEET_AT = 0.85f
+
 /**
- * 비어 있는 영역 전체를 돌아다니는 카링.
+ * 땅 위를 돌아다니는 카링.
  * [enabled]가 false면 가운데로 돌아와 멈춘다.
  */
 @Composable
@@ -304,9 +310,13 @@ fun Wandering(
 
     BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
         motion.px = with(density) { 1.dp.toPx() }
-        // 영역 밖(옆 패널·아래 이름)으로 나가지 않게: 그림 크기만큼 빼고, 점프 높이만큼 위쪽 여유를 둔다
+        // 영역 밖(옆 패널·아래 이름)으로 나가지 않게: 그림 크기만큼 뺀다
         motion.rangeX = with(density) { ((maxWidth - size) / 2).coerceAtLeast(0.dp).toPx() }
-        motion.rangeY = with(density) { ((maxHeight - size) / 2 - 40.dp).coerceAtLeast(0.dp).toPx() }
+        // 발이 배경의 땅 위에 있도록 세로로는 땅 높이 안에서만 돌아다닌다
+        val lowestTop = (maxHeight - size).coerceAtLeast(0.dp)
+        val highestTop = (maxHeight * GROUND_TOP - size * FEET_AT).coerceIn(0.dp, lowestTop)
+        motion.rangeY = with(density) { ((lowestTop - highestTop) / 2).toPx() }
+        val groundCenter = (highestTop + lowestTop) / 2 + size / 2 - maxHeight / 2
         motion.temper = temperOf(personality)
 
         LaunchedEffect(enabled, personality) {
@@ -316,7 +326,7 @@ fun Wandering(
 
         Box(
             Modifier
-                .offset { IntOffset(motion.x.roundToInt(), (motion.y - motion.lift).roundToInt()) }
+                .offset { IntOffset(motion.x.roundToInt(), (groundCenter.toPx() + motion.y - motion.lift).roundToInt()) }
                 .size(size),
             contentAlignment = Alignment.Center,
         ) {
