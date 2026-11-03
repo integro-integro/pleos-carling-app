@@ -72,6 +72,7 @@ class TripTracker(
                 harshEvents = speed.harshEvents,
                 placeCell = place?.cell,
                 placeName = place?.name,
+                region = place?.region,
             ),
         )
         speed.endTrip()

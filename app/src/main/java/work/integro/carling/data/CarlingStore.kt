@@ -11,6 +11,7 @@ import work.integro.carling.game.GameClock
 import work.integro.carling.game.GrowthRules
 import work.integro.carling.game.Light
 import work.integro.carling.game.Lineage
+import work.integro.carling.game.Region
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import kotlin.random.Random
@@ -25,6 +26,7 @@ data class TripResult(
     val harshEvents: Int?,
     val placeCell: String?,
     val placeName: String?,
+    val region: Region? = null,
 )
 
 /**
@@ -196,6 +198,31 @@ class CarlingStore(context: Context, val clock: GameClock) {
         refreshStage()
     }
 
+    /** 지역 특산물 먹이기. 배고플 때만 먹고, 포만감을 채우며 하루 XP 상한과 별도로 보너스 XP를 준다. */
+    fun eatFood(region: Region): Boolean {
+        val owned = data.foods[region] ?: 0
+        if (owned <= 0 || !GrowthRules.isHungry(data.fullness)) return false
+        rolloverIfNeeded()
+        update {
+            it.copy(
+                foods = it.foods + (region to owned - 1),
+                fullness = (it.fullness + GrowthRules.FOOD_FULLNESS).coerceAtMost(100),
+                totalXpPastDays = it.totalXpPastDays + region.bonusXp,
+            )
+        }
+        refreshStage()
+        return true
+    }
+
+    /** 이 지역 특산물을 오늘 아직 받지 않았다면 하나 더한다. */
+    private fun withRegionGift(d: CarlingData, region: Region?, day: String): CarlingData {
+        if (region == null || d.foodGiftDates[region] == day) return d
+        return d.copy(
+            foods = d.foods + (region to (d.foods[region] ?: 0) + 1),
+            foodGiftDates = d.foodGiftDates + (region to day),
+        )
+    }
+
     /** 쓰다듬기 — 친밀도(케어) 하루 상한 + 친밀도 행동 XP. */
     fun pet() {
         rolloverIfNeeded()
@@ -226,6 +253,14 @@ class CarlingStore(context: Context, val clock: GameClock) {
     }
 
     fun markItemIntroSeen() = update { it.copy(itemIntroSeen = true) }
+
+    /** 지금 단계까지 변화 장면을 본 것으로 표시한다. */
+    fun markStageCelebrated() = update { it.copy(celebratedStage = it.reachedStage) }
+
+    /** 개발용: 지금 단계의 변화 장면을 다시 보여준다. */
+    fun devReplayStageChange() = update {
+        if (it.reachedStage > 0) it.copy(celebratedStage = it.reachedStage - 1) else it
+    }
 
     fun toggleVoice() = update { it.copy(voiceOn = !it.voiceOn) }
 
@@ -313,7 +348,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
         if (!data.hatched) {
             if (data.firstTripDone) return
             update {
-                it.copy(
+                withRegionGift(it, trip.region, day).copy(
                     firstTripDone = true,
                     firstTripMinutes = minutes,
                     firstTripDistanceKm = trip.distanceKm,
@@ -338,7 +373,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
                         placeName = trip.placeName,
                         newPlace = true,
                         dayNumber = 1,
-                        highlights = listOf("우리의 첫 드라이브"),
+                        highlights = listOfNotNull(trip.region?.let { r -> "${r.foodName}을 받았어요" }, "우리의 첫 드라이브"),
                     ),
                 )
             }
@@ -373,6 +408,8 @@ class CarlingStore(context: Context, val clock: GameClock) {
         }
 
         val highlights = mutableListOf<String>()
+        val giftFood = trip.region?.takeIf { before.foodGiftDates[it] != day }
+        giftFood?.let { highlights += "${it.foodName}을 받았어요" }
         if (newPlace == true) highlights += "처음 보는 풍경"
         cardGotLabel?.let { highlights += "$it 획득" }
 
@@ -404,7 +441,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
 
         val number = before.tripCount + 1
         update {
-            next.copy(
+            withRegionGift(next, giftFood, day).copy(
                 pendingCard = number,
                 tripCards = before.tripCards + TripCard(
                     number = number,
@@ -432,6 +469,10 @@ class CarlingStore(context: Context, val clock: GameClock) {
     }
 
     // ---- 개발용 ----
+
+    fun devGiveFood(region: Region) = update { withRegionGift(it, region, clock.today().toString() + "#" + it.foods.values.sum()) }
+
+    fun devMakeHungry() = update { it.copy(fullness = GrowthRules.MIN_FULLNESS) }
 
     fun devGrantCard(evoIndex: Int) {
         update { it.copy(ownedCards = it.ownedCards + evoIndex) }

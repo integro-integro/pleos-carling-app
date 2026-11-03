@@ -34,8 +34,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import work.integro.carling.data.Personality
+import work.integro.carling.game.SpecialMove
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -80,6 +82,12 @@ private fun <T> pick(weights: Map<T, Int>): T {
     return weights.keys.first()
 }
 
+/** 지금 바로 보여줄 움직임. [move]가 null이면 성장할 때의 '짠'이다. [id]가 바뀔 때마다 한 번 재생한다. */
+data class WanderCue(val id: Int, val move: SpecialMove?)
+
+/** 돌아다니다가 배운 동작을 할 확률. */
+private const val SPECIAL_CHANCE = 0.22f
+
 /** 카링 몸의 현재 자세. 모든 값은 px/도 단위이고 프레임마다 바뀐다. */
 class CarlingMotion internal constructor(private val scope: CoroutineScope) {
     var x by mutableFloatStateOf(0f)
@@ -99,6 +107,8 @@ class CarlingMotion internal constructor(private val scope: CoroutineScope) {
     internal var rangeY = 0f
     internal var px = 1f // 1dp의 px
     internal var temper = temperOf(null)
+    internal var specials: List<SpecialMove> = emptyList()
+    internal var wanderEnabled = false
     private var job: Job? = null
     private var tapTimes = ArrayDeque<Long>()
 
@@ -107,6 +117,10 @@ class CarlingMotion internal constructor(private val scope: CoroutineScope) {
         job = scope.launch {
             while (true) {
                 delay(Random.nextLong(temper.idleMs.first, temper.idleMs.last))
+                if (specials.isNotEmpty() && Random.nextFloat() < SPECIAL_CHANCE) {
+                    special(specials.random())
+                    continue
+                }
                 when (pick(temper.weights)) {
                     Move.WALK -> walkTo(randomPoint(), temper.speedDp, hopDp = 12f)
                     Move.RUN -> walkTo(randomPoint(far = true), temper.speedDp * 2.4f, hopDp = 8f, hopLenDp = 45f)
@@ -160,11 +174,124 @@ class CarlingMotion internal constructor(private val scope: CoroutineScope) {
         }
     }
 
+    /** 진화 직후의 새 동작이나 성장의 '짠'을 바로 보여준다. */
+    fun play(cue: WanderCue) {
+        job?.cancel()
+        job = scope.launch {
+            settle()
+            val move = cue.move
+            if (move == null) zzan() else {
+                show("✨", "${move.label}!")
+                special(move)
+            }
+            delay(800)
+            if (wanderEnabled) startWandering()
+        }
+    }
+
     fun stop() {
         job?.cancel()
     }
 
     // ---- 행동들 ----
+
+    private suspend fun zzan() {
+        show("✨", "짠!")
+        squashTo(0.72f, 110)
+        arc(heightDp = 80f, millis = 420, fromX = x, fromY = y, toX = x, toY = y)
+        squashTo(1.18f, 90)
+        squashTo(1f, 170)
+    }
+
+    private suspend fun special(move: SpecialMove) {
+        when (move) {
+            SpecialMove.FLIP -> flip()
+            SpecialMove.GLIDE -> glide()
+            SpecialMove.ZIP -> repeat(3) { walkTo(randomPoint(far = true), 1_200f, hopDp = 0f) }
+            SpecialMove.LEAF_DANCE -> leafDance()
+            SpecialMove.WAVE -> wave()
+            SpecialMove.DRIFT -> drift()
+            SpecialMove.AURA -> aura()
+        }
+        settle()
+    }
+
+    /** 움츠렸다가 뛰어올라 한 바퀴 돈다. */
+    private suspend fun flip() {
+        squashTo(0.75f, 130)
+        animate(0f, 1f, animationSpec = tween(750, easing = LinearEasing)) { t, _ ->
+            lift = sin(t * PI.toFloat()) * 170f * px
+            rotation = 360f * t * if (facingLeft) -1f else 1f
+            squash = 1f
+        }
+        rotation = 0f
+        lift = 0f
+        squashTo(1.15f, 80)
+    }
+
+    /** 높이 떠올라 날개를 편 듯 기울며 천천히 미끄러진다. */
+    private suspend fun glide() {
+        val (tx, ty) = randomPoint(far = true)
+        val sx = x
+        val sy = y
+        if (abs(tx - sx) > 4f) facingLeft = tx < sx
+        animate(0f, 1f, animationSpec = tween(2_200, easing = FastOutSlowInEasing)) { t, _ ->
+            x = sx + (tx - sx) * t
+            y = sy + (ty - sy) * t
+            lift = sin(t * PI.toFloat()) * 190f * px
+            rotation = sin(t * 4f * PI.toFloat()) * 9f
+        }
+    }
+
+    /** 제자리에서 좌우로 살랑이며 통통 뛴다. */
+    private suspend fun leafDance() {
+        animate(0f, 1f, animationSpec = tween(2_000, easing = LinearEasing)) { t, _ ->
+            rotation = sin(t * 6f * PI.toFloat()) * 16f
+            lift = abs(sin(t * 6f * PI.toFloat())) * 34f * px
+            if (t > 0.5f) facingLeft = sin(t * 3f * PI.toFloat()) > 0f
+        }
+    }
+
+    /** 물결처럼 위아래로 넘실대며 지나간다. */
+    private suspend fun wave() {
+        val (tx, ty) = randomPoint(far = true)
+        val sx = x
+        val sy = y
+        if (abs(tx - sx) > 4f) facingLeft = tx < sx
+        animate(0f, 1f, animationSpec = tween(2_400, easing = LinearEasing)) { t, _ ->
+            x = sx + (tx - sx) * t
+            y = sy + (ty - sy) * t
+            val w = sin(t * 6f * PI.toFloat())
+            lift = (w + 1f) * 55f * px
+            rotation = cos(t * 6f * PI.toFloat()) * 14f * if (facingLeft) 1f else -1f
+        }
+    }
+
+    /** 빠르게 달리다 몸을 기울여 미끄러지며 멈춘다. */
+    private suspend fun drift() {
+        repeat(2) {
+            val target = randomPoint(far = true)
+            if (abs(target.first - x) > 4f) facingLeft = target.first < x
+            val tilt = if (facingLeft) 16f else -16f
+            animate(rotation, tilt, animationSpec = tween(120)) { v, _ -> rotation = v }
+            walkTo(target, 800f, hopDp = 0f)
+            animate(rotation, -tilt * 1.4f, animationSpec = tween(160)) { v, _ -> rotation = v }
+            animate(rotation, 0f, animationSpec = tween(200)) { v, _ -> rotation = v }
+        }
+    }
+
+    /** 떠올라 빠르게 회전하며 몸을 키웠다가 내려앉는다. */
+    private suspend fun aura() {
+        show("✨", null)
+        animate(0f, 1f, animationSpec = tween(1_600, easing = FastOutSlowInEasing)) { t, _ ->
+            lift = sin(t * PI.toFloat()) * 130f * px
+            rotation = 720f * t
+            squash = 1f + sin(t * PI.toFloat()) * 0.12f
+        }
+        rotation = 0f
+        lift = 0f
+        squash = 1f
+    }
 
     private fun randomPoint(near: Boolean = false, far: Boolean = false): Pair<Float, Float> {
         repeat(8) {
@@ -302,6 +429,8 @@ fun Wandering(
     tapLines: List<String>,
     onPetted: () -> Unit,
     modifier: Modifier = Modifier,
+    specials: List<SpecialMove> = emptyList(),
+    cue: WanderCue? = null,
     content: @Composable (napping: Boolean) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -318,9 +447,15 @@ fun Wandering(
         motion.rangeY = with(density) { ((lowestTop - highestTop) / 2).toPx() }
         val groundCenter = (highestTop + lowestTop) / 2 + size / 2 - maxHeight / 2
         motion.temper = temperOf(personality)
+        motion.specials = specials
+        motion.wanderEnabled = enabled
 
         LaunchedEffect(enabled, personality) {
             if (enabled) motion.startWandering() else motion.rest()
+        }
+        // 위의 효과 다음에 두어, 같은 순간에 시작하면 이 움직임이 이긴다
+        LaunchedEffect(cue?.id) {
+            if (cue != null && enabled) motion.play(cue)
         }
         DisposableEffect(Unit) { onDispose { motion.stop() } }
 

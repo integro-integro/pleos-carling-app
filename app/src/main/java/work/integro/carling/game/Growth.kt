@@ -41,12 +41,58 @@ enum class Lineage(val label: String, val color: Long, val names: List<String>, 
     EARTH("흙", 0xFFFF9D5C, listOf("총총링", "부릉링", "질주링"), "10km 미만 짧은 트립이 많을 때"),
 }
 
+/** 진화할 때 배우는 특별한 동작. 배운 뒤에는 돌아다니다가도 가끔 한다. */
+enum class SpecialMove(val label: String) {
+    FLIP("공중제비"),
+    GLIDE("바람 활공"),
+    ZIP("번개 질주"),
+    LEAF_DANCE("살랑 춤"),
+    WAVE("물결 타기"),
+    DRIFT("드리프트"),
+    AURA("완전체 오라"),
+}
+
 /** 카링이 착용하는 아이템. 성장 1부터 쓸 수 있다. */
 @Serializable
 enum class CarlingItem(val label: String, val icon: String) {
     PARTY_HAT("고깔 모자", "🎉"),
     RIBBON("리본", "🎀"),
     CROWN("왕관", "👑"),
+    SUNGLASSES("선글라스", "🕶"),
+    ROUND_GLASSES("동그란 안경", "👓"),
+    NECKLACE("목걸이", "📿"),
+    SHOES("신발", "👟"),
+    FLOWER_CROWN("꽃 화관", "🌸"),
+    HEADPHONES("헤드폰", "🎧"),
+    STRAW_HAT("밀짚모자", "👒"),
+}
+
+/**
+ * 방문하면 특산물을 받는 지역. 좌표 범위는 시·도 경계를 사각형으로 어림한 값이다.
+ * 위치는 판정에만 쓰고 저장하지 않는다.
+ */
+@Serializable
+enum class Region(
+    val label: String,
+    val foodName: String,
+    val foodIcon: String,
+    val bonusXp: Int,
+    private val minLat: Double,
+    private val maxLat: Double,
+    private val minLng: Double,
+    private val maxLng: Double,
+) {
+    JEJU("제주도", "제주 감귤", "🍊", 20, 33.10, 33.60, 126.10, 127.00),
+    GANGWON("강원도", "강원도 감자", "🥔", 15, 37.05, 38.65, 127.70, 129.45),
+    BUSAN("부산", "부산 어묵", "🍢", 15, 34.95, 35.40, 128.75, 129.32),
+    DAEGU("대구", "대구 사과", "🍎", 15, 35.60, 36.02, 128.35, 128.80),
+    JEONJU("전주", "전주 비빔밥", "🍚", 20, 35.75, 35.90, 127.03, 127.22);
+
+    fun contains(lat: Double, lng: Double) = lat in minLat..maxLat && lng in minLng..maxLng
+
+    companion object {
+        fun of(lat: Double, lng: Double): Region? = entries.firstOrNull { it.contains(lat, lng) }
+    }
 }
 
 /** 캐릭터 크기 단계(그림용). 세부 성장/진화 단계는 [GrowthRules.StageSpec] 인덱스로 다룬다. */
@@ -134,6 +180,24 @@ object GrowthRules {
     const val MP_NEW_PATH = 3
     const val MP_FAMILIAR = 1
     const val MP_DAILY_SAVES = 2
+
+    /** 이 단계의 진화에서 새로 배우는 동작. 진화 단계가 아니면 null. */
+    fun learnedMove(stageIndex: Int, lineage: Lineage?): SpecialMove? = when (STAGES.getOrNull(stageIndex)?.evoIndex) {
+        1 -> SpecialMove.FLIP
+        2 -> when (lineage ?: Lineage.WIND) {
+            Lineage.WIND -> SpecialMove.GLIDE
+            Lineage.LIGHT_RAY -> SpecialMove.ZIP
+            Lineage.TREE -> SpecialMove.LEAF_DANCE
+            Lineage.WATER -> SpecialMove.WAVE
+            Lineage.EARTH -> SpecialMove.DRIFT
+        }
+        3 -> SpecialMove.AURA
+        else -> null
+    }
+
+    /** 이 단계까지 배운 동작 전부. */
+    fun knownMoves(stageIndex: Int, lineage: Lineage?): List<SpecialMove> =
+        (1..stageIndex).mapNotNull { learnedMove(it, lineage) }
 
     /** 아이템이 열리는 단계(성장 1). 아기 카링과 확실히 다르게 하는 첫 보상이다. */
     const val ITEM_UNLOCK_STAGE = 1
@@ -242,5 +306,11 @@ object GrowthRules {
     const val FEED_FULLNESS = 20
     const val CHARGE_FULLNESS = 30
     const val DAILY_FULLNESS_DECAY = 10
+
+    /** 포만감이 이 이하면 배고픈 상태 — 특산물은 이때만 먹일 수 있다. */
+    const val HUNGRY_FULLNESS = 50
+    const val FOOD_FULLNESS = 30
+
+    fun isHungry(fullness: Int): Boolean = fullness <= HUNGRY_FULLNESS
     const val MIN_FULLNESS = 20
 }

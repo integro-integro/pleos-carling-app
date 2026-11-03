@@ -8,6 +8,7 @@ import ai.pleos.playground.navi.data.DestinationArrivedInfo
 import ai.pleos.playground.navi.helper.NaviHelper
 import ai.pleos.playground.navi.helper.listener.NaviHelperEventListener
 import kotlinx.coroutines.CompletableDeferred
+import work.integro.carling.game.Region
 import kotlinx.coroutines.withTimeoutOrNull
 import java.security.MessageDigest
 import kotlin.math.floor
@@ -15,7 +16,7 @@ import kotlin.math.floor
 private const val TAG = "NaviPlaces"
 
 /** 주행이 끝난 곳. 정밀 좌표는 밖으로 내보내지 않고 격자 해시만 남긴다. */
-data class Place(val cell: String, val name: String?)
+data class Place(val cell: String, val name: String?, val region: Region? = null)
 
 /**
  * '처음 간 곳 / 다시 찾은 곳' 판정용 위치.
@@ -69,7 +70,7 @@ class NaviPlaces(context: Context) {
         if (info == null || (info.latitude == 0.0 && info.longitude == 0.0)) return null
         val name = lastArrivedName ?: info.address.takeIf { it.isNotBlank() }
         lastArrivedName = null
-        return Place(cellOf(info.latitude, info.longitude), name)
+        return Place(cellOf(info.latitude, info.longitude), name, Region.of(info.latitude, info.longitude))
     }
 
     fun stop() {

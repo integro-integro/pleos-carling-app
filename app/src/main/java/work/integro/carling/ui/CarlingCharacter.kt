@@ -101,7 +101,20 @@ internal fun ArtDrawing(
                 }
                 overlay?.invoke(this, s)
                 val body = art.bodyCenter
-                if (item != null && body != null) drawItem(item, Offset(body.x * s, body.y * s), art.bodyRadius * s)
+                if (item != null && body != null) {
+                    val eyes = art.eyes ?: Offset(body.x, body.y - art.bodyRadius * 0.15f)
+                    drawItem(
+                        item,
+                        ItemAnchor(
+                            c = Offset(body.x * s, body.y * s),
+                            r = art.bodyRadius * s,
+                            eyes = Offset(eyes.x * s, eyes.y * s),
+                            eyeGap = (if (art.eyeGap > 0f) art.eyeGap else art.bodyRadius * 0.3f) * s,
+                            heart = Offset(art.heart.x * s, art.heart.y * s),
+                            feetY = (art.shadowAt?.y ?: (body.y + art.bodyRadius)) * s,
+                        ),
+                    )
+                }
                 drawSparkles(center, s * 0.42f, Color.White, twinkle)
             }
         }
@@ -134,7 +147,7 @@ fun CarlingDrawing(
     asleep: Boolean = false,
 ) {
     val art = carlingArt(stageIndex, lineage)
-    val shownItem = item.takeIf { GrowthRules.itemsUnlocked(stageIndex) }
+    val shownItem = item.takeIf { GrowthRules.itemsUnlocked(stageIndex) && canWearItem(stageIndex, lineage, it) }
     if (art != null) {
         val sleeping = asleep && stageIndex == SLEEP_ART_STAGE && (lineage == null || lineage == Lineage.WIND)
         ArtDrawing(art, size, modifier, res = if (sleeping) SleepArtRes else art.res, item = shownItem, beating = !sleeping)
@@ -169,7 +182,9 @@ fun CarlingDrawing(
             drawHeartCore(c, r, beat)
             drawFace(c, r, mood, sparkle = path == GrowthPath.EXPLORER)
             if (tier > 0) drawLineageFront(c, r, lineage!!, tier)
-            if (shownItem != null) drawItem(shownItem, c, r)
+            if (shownItem != null) {
+                drawItem(shownItem, ItemAnchor(c, r, c - Offset(0f, r * 0.2f), r * 0.46f, c + Offset(0f, r * 0.52f), c.y + r))
+            }
         }
         drawSparkles(c, r * 1.7f, lerp(Color.White, glow, 0.3f), twinkle)
     }
@@ -285,10 +300,112 @@ private fun DrawScope.drawFace(c: Offset, r: Float, mood: Personality?, sparkle:
 }
 
 /** 착용한 아이템을 몸 위에 그린다. [c]·[r]은 젤리 몸의 중심과 반지름. */
-private fun DrawScope.drawItem(item: CarlingItem, c: Offset, r: Float) = when (item) {
-    CarlingItem.PARTY_HAT -> drawHat(c, r)
-    CarlingItem.RIBBON -> drawRibbon(c, r)
-    CarlingItem.CROWN -> drawCrown(c, r)
+private fun DrawScope.drawItem(item: CarlingItem, a: ItemAnchor) = when (item) {
+    CarlingItem.PARTY_HAT -> drawHat(a.c, a.r)
+    CarlingItem.RIBBON -> drawRibbon(a.c, a.r)
+    CarlingItem.CROWN -> drawCrown(a.c, a.r)
+    CarlingItem.SUNGLASSES -> drawSunglasses(a)
+    CarlingItem.ROUND_GLASSES -> drawRoundGlasses(a)
+    CarlingItem.NECKLACE -> drawNecklace(a)
+    CarlingItem.SHOES -> drawShoes(a)
+    CarlingItem.FLOWER_CROWN -> drawFlowerCrown(a)
+    CarlingItem.HEADPHONES -> drawHeadphones(a)
+    CarlingItem.STRAW_HAT -> drawStrawHat(a)
+}
+
+private class ItemAnchor(val c: Offset, val r: Float, val eyes: Offset, val eyeGap: Float, val heart: Offset, val feetY: Float)
+
+private fun DrawScope.drawSunglasses(a: ItemAnchor) {
+    val w = a.eyeGap * 0.9f
+    val h = a.eyeGap * 0.72f
+    val y = a.eyes.y
+    for (side in listOf(-1f, 1f)) {
+        val x = a.eyes.x + side * a.eyeGap
+        drawRoundRect(Color(0xF0141822), Offset(x - w, y - h), Size(w * 2, h * 2), CornerRadius(h * 0.8f))
+        drawOval(Color.White.copy(alpha = 0.35f), Offset(x - w * 0.65f, y - h * 0.65f), Size(w * 0.7f, h * 0.45f))
+        drawLine(Color(0xFF141822), Offset(x + side * w * 0.9f, y - h * 0.3f), Offset(x + side * w * 1.5f, y - h * 0.5f), a.r * 0.05f)
+    }
+    drawLine(Color(0xFF141822), Offset(a.eyes.x - a.eyeGap + w, y - h * 0.2f), Offset(a.eyes.x + a.eyeGap - w, y - h * 0.2f), a.r * 0.05f)
+}
+
+private fun DrawScope.drawRoundGlasses(a: ItemAnchor) {
+    val radius = a.eyeGap * 0.82f
+    val gold = Color(0xFFE2A93B)
+    for (side in listOf(-1f, 1f)) {
+        val at = Offset(a.eyes.x + side * a.eyeGap, a.eyes.y)
+        drawCircle(Color.White.copy(alpha = 0.16f), radius, at)
+        drawCircle(gold, radius, at, style = Stroke(a.r * 0.045f))
+    }
+    drawLine(gold, Offset(a.eyes.x - a.eyeGap + radius, a.eyes.y), Offset(a.eyes.x + a.eyeGap - radius, a.eyes.y), a.r * 0.04f)
+}
+
+/** 심장을 감싸며 아래로 늘어진 구슬 목걸이. 얼굴과 심장을 가리지 않는다. */
+private fun DrawScope.drawNecklace(a: ItemAnchor) {
+    val top = a.heart.y - a.r * 0.12f
+    val n = 13
+    for (i in 0 until n) {
+        val t = i / (n - 1f) * 2f - 1f
+        val at = Offset(a.heart.x + t * a.r * 0.66f, top + (1f - t * t) * a.r * 0.5f)
+        val even = i % 2 == 0
+        drawCircle(if (even) Color(0xFFFFF4D6) else Color(0xFFFFC9DC), a.r * 0.062f, at)
+        drawCircle(Color.White.copy(alpha = 0.8f), a.r * 0.02f, at - Offset(a.r * 0.018f, a.r * 0.018f))
+    }
+}
+
+private fun DrawScope.drawShoes(a: ItemAnchor) {
+    val red = Color(0xFFE5484D)
+    for (side in listOf(-1f, 1f)) {
+        val x = a.c.x + side * a.r * 0.46f
+        val w = a.r * 0.36f
+        val h = a.r * 0.2f
+        val y = a.feetY - h * 1.35f
+        drawRoundRect(red, Offset(x - w, y), Size(w * 2, h * 1.2f), CornerRadius(h * 0.6f))
+        drawRoundRect(Color.White, Offset(x - w, y + h * 0.95f), Size(w * 2, h * 0.4f), CornerRadius(h * 0.2f))
+        drawCircle(Color.White, h * 0.16f, Offset(x - w * 0.3f, y + h * 0.35f))
+        drawCircle(Color.White, h * 0.16f, Offset(x + w * 0.25f, y + h * 0.35f))
+    }
+}
+
+private fun DrawScope.drawFlowerCrown(a: ItemAnchor) {
+    val colors = listOf(Color(0xFFFFA3C4), Color(0xFFFFE27A), Color(0xFFFFFFFF), Color(0xFFB9A3FF))
+    val n = 7
+    for (i in 0 until n) {
+        val t = i / (n - 1f) * 2f - 1f
+        val at = Offset(a.c.x + t * a.r * 0.74f, a.c.y - a.r * (0.98f - t * t * 0.32f))
+        val petal = a.r * 0.085f
+        for (k in 0 until 5) {
+            val angle = k * 72f * (kotlin.math.PI.toFloat() / 180f)
+            drawCircle(colors[i % colors.size], petal, at + Offset(kotlin.math.cos(angle) * petal, kotlin.math.sin(angle) * petal))
+        }
+        drawCircle(Color(0xFFFFB648), petal * 0.7f, at)
+    }
+}
+
+private fun DrawScope.drawHeadphones(a: ItemAnchor) {
+    val dark = Color(0xFF2A2F45)
+    val cupY = a.eyes.y + a.r * 0.05f
+    val x = a.r * 1.0f
+    drawArc(
+        dark, 195f, 150f, false,
+        topLeft = Offset(a.c.x - x, a.c.y - a.r * 1.14f),
+        size = Size(x * 2, a.r * 2f),
+        style = Stroke(a.r * 0.1f, cap = StrokeCap.Round),
+    )
+    for (side in listOf(-1f, 1f)) {
+        val w = a.r * 0.17f
+        val h = a.r * 0.31f
+        val cx = a.c.x + side * a.r * 0.98f
+        drawOval(dark, Offset(cx - w, cupY - h), Size(w * 2, h * 2))
+        drawOval(Color(0xFFFF7A8A), Offset(cx - w * 0.55f, cupY - h * 0.6f), Size(w * 1.1f, h * 1.2f))
+    }
+}
+
+private fun DrawScope.drawStrawHat(a: ItemAnchor) {
+    val brimY = a.c.y - a.r * 0.8f
+    val straw = Brush.verticalGradient(listOf(Color(0xFFF6DE9B), Color(0xFFDDB65F)), brimY - a.r * 0.55f, brimY + a.r * 0.14f)
+    drawOval(straw, Offset(a.c.x - a.r * 0.68f, brimY - a.r * 0.5f), Size(a.r * 1.36f, a.r * 0.82f))
+    drawRect(Color(0xFFE5507E), Offset(a.c.x - a.r * 0.66f, brimY - a.r * 0.14f), Size(a.r * 1.32f, a.r * 0.13f))
+    drawOval(straw, Offset(a.c.x - a.r * 1.05f, brimY - a.r * 0.06f), Size(a.r * 2.1f, a.r * 0.28f))
 }
 
 private fun DrawScope.drawRibbon(c: Offset, r: Float) {

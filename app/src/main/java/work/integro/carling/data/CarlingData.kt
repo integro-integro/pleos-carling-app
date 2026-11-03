@@ -5,6 +5,7 @@ import work.integro.carling.game.CarlingItem
 import work.integro.carling.game.GrowthRules
 import work.integro.carling.game.Light
 import work.integro.carling.game.Lineage
+import work.integro.carling.game.Region
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
@@ -58,6 +59,8 @@ data class CarlingData(
     val doneQuests: Set<Int> = emptySet(),     // 완료한 진화 퀘스트
 
     val reachedStage: Int = 0, // 마지막으로 계산된 단계 인덱스(0 = 아기)
+    /** 변화 장면을 마지막으로 보여준 단계. null이면 아직 기준이 없어 장면 없이 현재 단계로 맞춘다. */
+    val celebratedStage: Int? = null,
 
     // 통계
     val togetherDays: Set<String> = emptySet(),
@@ -80,6 +83,10 @@ data class CarlingData(
 
     // 꾸미기·트립카드
     val equippedItem: CarlingItem? = null,
+    /** 가지고 있는 지역 특산물 개수. */
+    val foods: Map<Region, Int> = emptyMap(),
+    /** 지역별 마지막으로 특산물을 받은 날. 지역마다 하루 1개만 받는다. */
+    val foodGiftDates: Map<Region, String> = emptyMap(),
     /** 성장 1의 '아이템이 열렸어요' 안내를 봤는지. */
     val itemIntroSeen: Boolean = false,
     val tripCards: List<TripCard> = emptyList(),

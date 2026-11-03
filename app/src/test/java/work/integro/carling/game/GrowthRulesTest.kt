@@ -55,6 +55,34 @@ class GrowthRulesTest {
     }
 
     @Test
+    fun evolutionsTeachNewMoves() {
+        assertNull(GrowthRules.learnedMove(1, Lineage.WIND))
+        assertEquals(SpecialMove.FLIP, GrowthRules.learnedMove(3, Lineage.TREE))
+        assertEquals(SpecialMove.WAVE, GrowthRules.learnedMove(6, Lineage.WATER))
+        assertEquals(SpecialMove.AURA, GrowthRules.learnedMove(9, Lineage.EARTH))
+        assertEquals(emptyList<SpecialMove>(), GrowthRules.knownMoves(2, Lineage.WIND))
+        assertEquals(listOf(SpecialMove.FLIP, SpecialMove.ZIP), GrowthRules.knownMoves(8, Lineage.LIGHT_RAY))
+    }
+
+    @Test
+    fun regionsFromCoordinates() {
+        assertEquals(Region.JEJU, Region.of(33.50, 126.53)) // 제주시
+        assertEquals(Region.GANGWON, Region.of(37.88, 127.73)) // 춘천
+        assertEquals(Region.GANGWON, Region.of(37.75, 128.90)) // 강릉
+        assertEquals(Region.BUSAN, Region.of(35.18, 129.07))
+        assertEquals(Region.DAEGU, Region.of(35.87, 128.60))
+        assertEquals(Region.JEONJU, Region.of(35.82, 127.15))
+        assertNull(Region.of(37.56, 126.98)) // 서울
+        assertNull(Region.of(37.49, 127.49)) // 양평
+    }
+
+    @Test
+    fun onlyHungryCarlingEatsFood() {
+        assertEquals(true, GrowthRules.isHungry(50))
+        assertEquals(false, GrowthRules.isHungry(51))
+    }
+
+    @Test
     fun itemsOpenAtFirstGrowth() {
         assertEquals(false, GrowthRules.itemsUnlocked(0))
         assertEquals(true, GrowthRules.itemsUnlocked(1))

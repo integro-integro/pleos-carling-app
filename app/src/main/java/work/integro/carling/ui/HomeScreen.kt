@@ -26,6 +26,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -44,6 +46,7 @@ import work.integro.carling.game.DevSimulator
 import work.integro.carling.game.GrowthRules
 import work.integro.carling.game.Light
 import work.integro.carling.game.Lineage
+import work.integro.carling.game.Region
 import work.integro.carling.vehicle.VehicleState
 
 /** 계열이 정해졌으면 계열 색, 아니면 공통 하늘빛. */
@@ -65,6 +68,7 @@ fun HomeScreen(
     var showMap by remember { mutableStateOf(false) }
     var showScenes by remember { mutableStateOf(false) }
     var showItems by remember { mutableStateOf(false) }
+    var showFoods by remember { mutableStateOf(false) }
     var showTutorial by remember { mutableStateOf(false) }
     var justFed by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { greetedToday = store.greetIfNewDay() }
@@ -78,12 +82,29 @@ fun HomeScreen(
     }
 
     val carlingSize = if (compact) 360.dp else 480.dp
-    val lookStage = store.devLook?.first ?: data.reachedStage
+    // 변화 장면을 보기 전까지는 옛 모습을 유지해, 새 모습이 미리 보이지 않게 한다
+    val celebrated = data.celebratedStage
+    val growing = celebrated != null && data.reachedStage > celebrated
+    LaunchedEffect(celebrated, data.reachedStage) {
+        if (celebrated == null || celebrated > data.reachedStage) store.markStageCelebrated()
+    }
+    val evolving = growing && GrowthRules.STAGES[data.reachedStage].kind == GrowthRules.Kind.EVOLUTION
+    // 트립카드 등 다른 창을 다 닫은 뒤에 재생한다. 주행 중에는 이 화면 자체가 없어 정차 후로 미뤄진다.
+    val noDialog = data.pendingCard == null && openCard == null && !showTripCards && !showMap && !showItems && !showFoods && !showScenes && !showTutorial
+    val growthNotice = growing && !evolving && noDialog
+    val lookStage = store.devLook?.first ?: if (growing && !growthNotice) celebrated else data.reachedStage
+    var cueId by remember { mutableIntStateOf(0) }
+    var cue by remember { mutableStateOf<WanderCue?>(null) }
+    LaunchedEffect(growthNotice) {
+        if (growthNotice) cue = WanderCue(++cueId, null)
+    }
     val lookLineage = store.devLook?.second ?: data.lineage
     val playground = @Composable { areaModifier: Modifier ->
         Wandering(
             size = carlingSize,
-            enabled = data.pendingCard == null && !showTripCards && openCard == null && !showMap && !showTutorial && !showScenes && !showItems,
+            enabled = data.pendingCard == null && !showTripCards && openCard == null && !showMap && !showTutorial && !showScenes && !showItems && !showFoods && !(evolving && noDialog),
+            specials = GrowthRules.knownMoves(lookStage, lookLineage),
+            cue = cue,
             personality = personality,
             tapLines = personality.tapLines,
             onPetted = store::pet,
@@ -120,6 +141,7 @@ fun HomeScreen(
             onMap = { showMap = true },
             onScenes = { showScenes = true },
             onItems = { showItems = true },
+            onFoods = { showFoods = true },
             onLocationToggle = { allowed ->
                 store.setLocationConsent(allowed)
                 if (allowed) onLocationAllowed()
@@ -183,10 +205,13 @@ fun HomeScreen(
             }
         }
         if (showMap) ExampleMapScreen(onClose = { showMap = false })
+        if (showFoods) {
+            FoodsDialog(data, onEat = { store.eatFood(it) }, onClose = { showFoods = false })
+        }
         if (showItems) {
             ItemsDialog(data, personality, onSelect = store::equipItem, onClose = { showItems = false })
         }
-        if (GrowthRules.itemsUnlocked(data.reachedStage) && !data.itemIntroSeen && data.pendingCard == null && openCard == null) {
+        if (!growing && GrowthRules.itemsUnlocked(data.reachedStage) && !data.itemIntroSeen && data.pendingCard == null && openCard == null) {
             ItemUnlockDialog(
                 data,
                 personality,
@@ -196,6 +221,19 @@ fun HomeScreen(
         }
         if (showScenes) ScenePickerDialog(data.scene, onSelect = store::setScene, onClose = { showScenes = false })
         if (showTutorial) TutorialDialog(onClose = { showTutorial = false })
+        if (growthNotice) {
+            key(celebrated, data.reachedStage) {
+                GrowthNotice(data.reachedStage, data.lineage, onDone = store::markStageCelebrated)
+            }
+        }
+        if (evolving && noDialog) {
+            key(celebrated, data.reachedStage) {
+                EvolutionOverlay(celebrated, data.reachedStage, data.lineage, onDone = {
+                    GrowthRules.learnedMove(data.reachedStage, data.lineage)?.let { cue = WanderCue(++cueId, it) }
+                    store.markStageCelebrated()
+                })
+            }
+        }
     }
 }
 
@@ -208,6 +246,7 @@ private fun StatusPanel(
     onMap: () -> Unit,
     onScenes: () -> Unit,
     onItems: () -> Unit,
+    onFoods: () -> Unit,
     onLocationToggle: (Boolean) -> Unit,
 ) {
     val today = store.clock.today()
@@ -277,14 +316,17 @@ private fun StatusPanel(
 
             Spacer(Modifier.height(14.dp))
             val canFeed = store.canFeedToday()
-            GameButton(
-                text = if (canFeed) "밥 주기 (+5 XP)" else "오늘은 배불러요",
-                icon = "🍙",
-                top = Color(0xFFFFB648), bottom = Color(0xFFE07A12),
-                enabled = canFeed,
-                modifier = Modifier.fillMaxWidth(),
-                onClick = onFeed,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                GameButton(
+                    text = if (canFeed) "밥 주기 (+5 XP)" else "오늘은 배불러요",
+                    icon = "🍙",
+                    top = Color(0xFFFFB648), bottom = Color(0xFFE07A12),
+                    enabled = canFeed,
+                    modifier = Modifier.weight(2.4f),
+                    onClick = onFeed,
+                )
+                GameSlot("🍊", "특산물", enabled = true, badge = data.foods.values.sum(), modifier = Modifier.weight(1f), onClick = onFoods)
+            }
             Spacer(Modifier.height(10.dp))
             // 교감 — 놀아주기 / 말 걸기 (친밀도 XP)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -320,10 +362,11 @@ private val tutorialSections: List<Triple<String, String, String>> = listOf(
     Triple("⭐", "지도 포인트 (MP)", "트립카드를 저장하면 받아요. 새 길 +3, 익숙한 길 +1 (운행일마다 2장까지). 저장은 그보다 많이 해도 돼요."),
     Triple("🗺", "지도", "지금 지도는 예시 화면이에요. 지역 버튼이나 +, −로 움직여 볼 수 있고, 내 트립 경로는 아직 표시되지 않아요."),
     Triple("🖼", "배경", "알이 깨어나면 도시·바닷가 해안·맑은 하늘·고요한 숲 중에서 고를 수 있어요. 낮과 밤은 차량 시계에 맞춰 저절로 바뀌어요."),
-    Triple("🎁", "아이템", "성장 1이 되면 열려요. 고깔 모자·리본·왕관 중 하나를 골라 카링을 꾸며 보세요."),
+    Triple("🎁", "아이템", "성장 1이 되면 열려요. 선글라스·목걸이·신발 등 10가지 중 하나를 골라 카링을 꾸며 보세요."),
+    Triple("🍊", "지역 특산물", "제주도·강원도·부산·대구·전주를 방문하면 특산물을 받아요(지역마다 하루 1개, 위치 사용 필요). 배고플 때 먹이면 경험치가 더 많이 올라요."),
     Triple("🎨", "계열", "처음엔 진주색 아기 키링이에요. 운전 습관에 따라 D14에 계열(바람·빛·나무·물·흙)이 정해지면 몸 색과 외형이 바뀌어요."),
     Triple("🏷", "이름", "자랄 때마다 이름이 바뀌어요. 바람 계열이면 산들링, 나래링을 거쳐 하늘링 완전체가 돼요. 빛은 섬광링, 나무는 우듬지링, 물은 바다링, 흙은 질주링이 마지막 모습이에요."),
-    Triple("✨", "진화", "D30·D90·D180에 진화카드를 받고 특별 퀘스트를 채우면 진화해요. 단계는 건너뛰지 않고, 자랄수록 모습이 크게 달라져요."),
+    Triple("✨", "진화", "D30·D90·D180에 진화카드를 받고 특별 퀘스트를 채우면 진화해요. 단계는 건너뛰지 않고, 성장할 때는 알림과 함께 '짠' 하고 바뀌고, 진화할 때는 변신 장면과 함께 새로운 동작을 배워요."),
     Triple("💗", "돌보기", "쓰다듬기·밥 주기·놀아주기·말 걸기로 교감해요 (하루 서로 다른 2가지 행동까지 XP)."),
     Triple("↩", "되돌아가기", "첫 만남 중에는 화면 왼쪽 위 '뒤로'로 이전 단계를 다시 볼 수 있어요."),
 )
@@ -428,6 +471,13 @@ private fun DevPanel(store: CarlingStore, vehicle: VehicleState, modifier: Modif
                 OutlinedButton(onClick = { store.clock.skipDays(1) }) { Text("다음 날로") }
                 OutlinedButton(onClick = store::devRestartFromD1) { Text("D1부터") }
                 OutlinedButton(onClick = store::reset) { Text("알부터") }
+            }
+            OutlinedButton(onClick = store::devReplayStageChange) { Text("변화 장면 다시 보기") }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Region.entries.forEach { r ->
+                    OutlinedButton(onClick = { store.devGiveFood(r) }) { Text(r.foodIcon) }
+                }
+                OutlinedButton(onClick = store::devMakeHungry) { Text("배고픔") }
             }
         }
     }
