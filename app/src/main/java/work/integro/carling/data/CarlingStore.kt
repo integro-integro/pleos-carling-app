@@ -31,6 +31,8 @@ data class TripResult(
     val lng: Double? = null,
     val startLat: Double? = null,
     val startLng: Double? = null,
+    /** 주행 중 기록한 실제 경로. */
+    val track: List<GeoDot> = emptyList(),
 )
 
 /**
@@ -52,6 +54,21 @@ class CarlingStore(context: Context, val clock: GameClock) {
                 .onFailure { e -> Log.w(TAG, "저장 데이터 읽기 실패, 초기화", e) }
                 .getOrNull()
         } ?: CarlingData()
+
+    /** 길별 실제 경로. 크기가 커서 자주 저장되는 상태와 나눠, 새 경로가 생길 때만 저장한다. */
+    var routeTracks by mutableStateOf(loadTracks())
+        private set
+
+    private fun loadTracks(): Map<String, List<GeoDot>> =
+        prefs.getString(KEY_TRACKS, null)?.let {
+            runCatching { json.decodeFromString<Map<String, List<GeoDot>>>(it) }.getOrNull()
+        } ?: emptyMap()
+
+    private fun saveTrack(key: String?, track: List<GeoDot>) {
+        if (key == null) return
+        routeTracks = routeTracks + (key to track)
+        prefs.edit().putString(KEY_TRACKS, json.encodeToString(routeTracks)).apply()
+    }
 
     private fun update(block: (CarlingData) -> CarlingData) {
         data = block(data)
@@ -196,7 +213,19 @@ class CarlingStore(context: Context, val clock: GameClock) {
     private fun refreshStage() = update {
         val idx = it.stageIndexOn(clock.today())
         val lineage = if (it.lineage == null && idx >= 2) GrowthRules.dominantLineage(it.lineageScores) else it.lineage
-        it.copy(reachedStage = idx, lineage = lineage)
+        val updated = it.copy(reachedStage = idx, lineage = lineage)
+        if (idx > it.reachedStage) restartGauges(updated, idx) else updated
+    }
+
+    /** 성장·진화하면 게이지를 모두 비운다. XP·MP는 초과분을 버려 새 단계의 시작값에서 다시 센다. */
+    private fun restartGauges(d: CarlingData, stage: Int): CarlingData {
+        val spec = GrowthRules.STAGES[stage]
+        return d.copy(
+            intimacy = 0,
+            fullness = 0,
+            totalXpPastDays = d.totalXpPastDays - GrowthRules.overflow(d.totalXp, spec.cumXp),
+            totalMpPastDays = d.totalMpPastDays - GrowthRules.overflow(d.totalMp, spec.cumMp),
+        )
     }
 
     // ---- 하루 루틴(케어) ----
@@ -332,8 +361,9 @@ class CarlingStore(context: Context, val clock: GameClock) {
         update {
             it.copy(
                 lastDecayDate = today.toString(),
+                // 이미 하한보다 낮으면(성장 직후) 올리지 않는다
                 fullness = (it.fullness - days * GrowthRules.DAILY_FULLNESS_DECAY)
-                    .coerceAtLeast(GrowthRules.MIN_FULLNESS),
+                    .coerceAtLeast(minOf(it.fullness, GrowthRules.MIN_FULLNESS)),
             )
         }
     }
@@ -458,7 +488,8 @@ class CarlingStore(context: Context, val clock: GameClock) {
         val highlights = mutableListOf<String>()
         val giftFood = trip.region?.takeIf { before.foodGiftDates[it] != day }
         giftFood?.let { highlights += "${it.foodName}을 받았어요" }
-        val mapChange = before.mapRoutes.afterTrip(trip.startLat, trip.startLng, trip.lat, trip.lng, trip.placeName, trip.distanceKm, day)
+        val track = simplifyTrack(trip.track)
+        val mapChange = before.mapRoutes.afterTrip(trip.startLat, trip.startLng, trip.lat, trip.lng, trip.placeName, trip.distanceKm, day, track) { routeTracks[it.trackKey] }
         if (mapChange.newRoute) highlights += "새로운 길이 지도에 켜졌어요"
         else if (mapChange.lit) highlights += "달렸던 길이 지도에서 더 밝아졌어요"
         if (newPlace == true) highlights += "처음 보는 풍경"
@@ -486,11 +517,13 @@ class CarlingStore(context: Context, val clock: GameClock) {
         val lineageWasNull = before.lineage == null
         val lineage = if (lineageWasNull && newStage >= 2) GrowthRules.dominantLineage(next.lineageScores) else before.lineage
         next = next.copy(reachedStage = newStage, lineage = lineage)
+        if (newStage > oldStage) next = restartGauges(next, newStage)
 
         if (newStage > oldStage) highlights += "${GrowthRules.stageName(newStage, lineage)} 도달"
         if (lineageWasNull && lineage != null) highlights += "${lineage.label} 계열이 되었어요"
 
         val number = before.tripCount + 1
+        saveTrack(mapChange.trackKey, track)
         update {
             withRegionGift(next, giftFood, day).copy(
                 pendingCard = number,
@@ -540,6 +573,8 @@ class CarlingStore(context: Context, val clock: GameClock) {
      */
     fun devRestartFromD1() {
         clock.reset()
+        routeTracks = emptyMap()
+        prefs.edit().remove(KEY_TRACKS).apply()
         devLook = null
         val old = data
         update {
@@ -562,10 +597,12 @@ class CarlingStore(context: Context, val clock: GameClock) {
     fun reset() {
         prefs.edit().clear().apply()
         clock.reset()
+        routeTracks = emptyMap()
         data = CarlingData()
     }
 
     private companion object {
         const val KEY_DATA = "data"
+        const val KEY_TRACKS = "tracks"
     }
 }

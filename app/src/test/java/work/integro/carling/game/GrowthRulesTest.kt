@@ -8,6 +8,7 @@ import work.integro.carling.data.afterTrip
 import work.integro.carling.data.recentDestinations
 import work.integro.carling.data.roadShape
 import work.integro.carling.data.roughKm
+import work.integro.carling.data.simplifyTrack
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -203,6 +204,53 @@ class GrowthRulesTest {
         assertEquals(at.lat, road.first().lat, 1e-9)
         assertEquals(at.lat, road.last().lat, 1e-9)
         assertEquals(true, road.maxOf { roughKm(at, it) } > 2.0)
+    }
+
+    @Test
+    fun gaugeRefillsEachStage() {
+        assertEquals(0f, GrowthRules.stageProgress(100, 100, 300), 0.001f)
+        assertEquals(0.5f, GrowthRules.stageProgress(200, 100, 300), 0.001f)
+        assertEquals(1f, GrowthRules.stageProgress(350, 100, 300), 0.001f)
+        assertEquals(0f, GrowthRules.stageProgress(50, 100, 300), 0.001f)
+    }
+
+    @Test
+    fun growthDiscardsOverflow() {
+        assertEquals(192, GrowthRules.overflow(262, 70))
+        assertEquals(0, GrowthRules.overflow(70, 70))
+        // 초과분을 버리면 다음 단계 게이지는 빈 칸에서 시작한다
+        assertEquals(0f, GrowthRules.stageProgress(262 - GrowthRules.overflow(262, 70), 70, 180), 0.001f)
+    }
+
+    @Test
+    fun recordedTrackDrawsActualRoad() {
+        val track = listOf(GeoDot(37.5, 127.0), GeoDot(37.51, 127.01), GeoDot(37.52, 127.0))
+        assertEquals(track, roadShape(MapRoute(toLat = 37.52, toLng = 127.0, fromLat = 37.5, fromLng = 127.0), track))
+    }
+
+    @Test
+    fun simplifyDropsStillPointsAndLimitsSize() {
+        val still = List(50) { GeoDot(37.5, 127.0) }
+        assertEquals(1, simplifyTrack(still).size)
+        val moving = List(1000) { GeoDot(37.0 + it * 0.001, 127.0) }
+        val out = simplifyTrack(moving)
+        assertEquals(300, out.size)
+        assertEquals(38.0, out.last().lat, 0.01)
+    }
+
+    @Test
+    fun differentWayBetweenSamePlacesIsNewRoute() {
+        val north = List(10) { GeoDot(37.5 + it * 0.01, 127.0) }
+        val south = List(10) { GeoDot(37.5 + it * 0.01, 127.1) }
+        val first = emptyList<MapRoute>().afterTrip(37.5, 127.0, 37.59, 127.0, null, null, "d", north)
+        assertEquals("r0", first.trackKey)
+        val tracks = mapOf("r0" to north)
+        val same = first.routes.afterTrip(37.5, 127.0, 37.59, 127.0, null, null, "d", north) { tracks[it.trackKey] }
+        assertEquals(false, same.newRoute)
+        assertEquals(2, same.routes.single().visits)
+        val other = first.routes.afterTrip(37.5, 127.0, 37.59, 127.0, null, null, "d", south) { tracks[it.trackKey] }
+        assertEquals(true, other.newRoute)
+        assertEquals("r1", other.trackKey)
     }
 
     @Test

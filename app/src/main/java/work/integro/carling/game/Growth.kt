@@ -202,6 +202,13 @@ object GrowthRules {
     /** 아이템이 열리는 단계(성장 1). 아기 카링과 확실히 다르게 하는 첫 보상이다. */
     const val ITEM_UNLOCK_STAGE = 1
 
+    /** 이번 단계 게이지. 성장하면 초과분을 버리므로 단계마다 빈 상태에서 다시 찬다. */
+    fun stageProgress(total: Int, from: Int, to: Int): Float =
+        if (to <= from) 1f else ((total - from).toFloat() / (to - from)).coerceIn(0f, 1f)
+
+    /** 성장 때 버릴 초과분. 누적값이 새 단계의 시작값이 되도록 한다. */
+    fun overflow(total: Int, stageStart: Int): Int = (total - stageStart).coerceAtLeast(0)
+
     fun itemsUnlocked(stageIndex: Int): Boolean = stageIndex >= ITEM_UNLOCK_STAGE
 
     /**

@@ -1,7 +1,9 @@
 package work.integro.carling.game
 
 import work.integro.carling.data.CarlingStore
+import work.integro.carling.data.MapRoute
 import work.integro.carling.data.TripResult
+import work.integro.carling.data.roadShape
 import work.integro.carling.navi.NaviPlaces
 import java.time.ZoneId
 import kotlin.random.Random
@@ -61,6 +63,8 @@ class DevSimulator(private val store: CarlingStore) {
                 lng = lng,
                 startLat = startLat,
                 startLng = startLng,
+                // 실제 주행 기록처럼 일정 간격의 경로를 넣어 상세 지도를 시험한다
+                track = roadShape(MapRoute(lat, lng, startLat, startLng)),
             ),
         )
     }

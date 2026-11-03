@@ -39,7 +39,7 @@ data class CarlingData(
     val activeTrip: ActiveTrip? = null,
 
     // ---- 성장 엔진(v1): XP(성장 에너지) + MP(지도 포인트), 서로 환산하지 않음 ----
-    // 누적값 — 지난 날들에서 확정된 합계. 오늘치는 아래 집계로 더한다. 단계 달성으로 차감하지 않음.
+    // 누적값 — 지난 날들에서 확정된 합계. 오늘치는 아래 집계로 더한다. 성장하면 새 단계 시작값을 넘는 만큼 버린다.
     val totalXpPastDays: Int = 0,
     val totalMpPastDays: Int = 0,
     // 오늘 XP 집계 (날이 바뀌면 past로 접고 리셋)
@@ -95,7 +95,7 @@ data class CarlingData(
     val itemIntroSeen: Boolean = false,
     /** Drive Log — 모든 트립. 트립카드 화면은 여기서 목적지별 최근 20곳을 골라 보여준다. */
     val tripCards: List<TripCard> = emptyList(),
-    /** 지도에 켜진 길. 위치는 약 1km 단위로 어림해 이 기기에만 저장한다. */
+    /** 지도에 켜진 길. 양 끝은 약 1km 단위로 어림하고, 이 기기에만 저장한다. */
     val mapRoutes: List<MapRoute> = emptyList(),
     /** 새 길 알림을 아직 보여주지 않았는지. */
     val pendingMapNotice: Boolean = false,
@@ -128,8 +128,8 @@ data class CarlingData(
     val stageSpec get() = GrowthRules.STAGES[reachedStage.coerceIn(0, GrowthRules.MAX_STAGE)]
 }
 
-/** 3부터 지도 표시용 어림 위치를 저장한다는 안내가 들어 있다. */
-const val CURRENT_LOCATION_CONSENT = 3
+/** 4부터 달린 경로를 기기에 저장한다는 안내가 들어 있다. */
+const val CURRENT_LOCATION_CONSENT = 4
 
 /** 트립카드 화면에 보여주는 목적지 수. 내비의 최근 목적지와 같다. */
 const val RECENT_DESTINATIONS = 20
@@ -172,6 +172,8 @@ data class MapRoute(
     val distanceKm: Float? = null,
     /** 이 길을 달린 횟수. 많을수록 지도에서 더 밝다. */
     val visits: Int = 1,
+    /** 실제 경로가 저장된 열쇠. 경로를 기록하지 못했으면 null이고 길 모양을 지어낸다. */
+    val trackKey: String? = null,
 ) {
     fun connects(aLat: Double, aLng: Double, bLat: Double, bLng: Double): Boolean =
         (fromLat == aLat && fromLng == aLng && toLat == bLat && toLng == bLng) ||

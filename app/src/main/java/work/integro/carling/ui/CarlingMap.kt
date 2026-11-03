@@ -56,7 +56,7 @@ import kotlin.math.min
 /*
  * 카링의 지도. 어두운 지도에서 함께 달린 길만 켜진다.
  * 지도 SDK 없이 Canvas로 그리며, 바탕은 해안선만 어림한 그림이다.
- * 길은 경로를 기록하지 않아 출발지와 도착지 사이를 도로처럼 지어내 그린다 (data/MapRoads.kt).
+ * 길은 주행 중 기록한 실제 경로로 그리고, 기록이 없는 길만 도로처럼 지어낸다 (data/MapRoads.kt).
  */
 
 private val Sea = Color(0xFF070B1E)
@@ -69,7 +69,7 @@ private const val NOTICE_MS = 4_500L
 
 private const val LNG_SCALE = 0.81f // 위도 36° 부근에서 경도 1°의 상대 길이
 private const val MIN_ZOOM = 0.8f
-private const val MAX_ZOOM = 45f
+private const val MAX_ZOOM = 400f
 private const val HOME_LNG = 127.9f
 private const val HOME_LAT = 36.05f
 
@@ -116,10 +116,11 @@ private fun fitRoads(roads: List<List<GeoDot>>, widthPx: Float, heightPx: Float)
 }
 
 @Composable
-fun CarlingMapScreen(routes: List<MapRoute>, onClose: () -> Unit) {
+fun CarlingMapScreen(routes: List<MapRoute>, tracks: Map<String, List<GeoDot>>, onClose: () -> Unit) {
     // 캐시를 쓰면 같은 글자의 외곽선 스타일이 채움에도 재사용되어 글자가 흰색으로만 그려진다
     val measurer = rememberTextMeasurer(cacheSize = 0)
-    val roads = remember(routes) { routes.map { roadShape(it) } }
+    val roads = remember(routes, tracks) { routes.map { roadShape(it, tracks[it.trackKey]) } }
+    val hasMadeUpRoad = remember(routes, tracks) { routes.any { tracks[it.trackKey] == null } }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Sea)) {
         val widthPx = constraints.maxWidth.toFloat()
@@ -194,8 +195,8 @@ fun CarlingMapScreen(routes: List<MapRoute>, onClose: () -> Unit) {
             )
         }
 
-        Text(
-            "길 모양은 실제 달린 길과 달라요",
+        if (hasMadeUpRoad) Text(
+            "경로를 기록하지 못한 길은 모양이 실제와 달라요",
             fontSize = 16.sp,
             color = Muted,
             modifier = Modifier
@@ -272,7 +273,7 @@ private fun DrawScope.drawDarkLand(view: MapView, zoom: Float) {
     }
     // 크게 볼 때는 길 말고 보이는 것이 없어 격자로 움직임을 알 수 있게 한다
     if (zoom < 4f) return
-    val step = 0.1f
+    val step = if (zoom >= 40f) 0.01f else 0.1f
     val halfLng = size.width / 2 / (LNG_SCALE * view.pxPerDegree)
     val halfLat = size.height / 2 / view.pxPerDegree
     var lng = floor((view.centerLng - halfLng) / step) * step
@@ -301,7 +302,7 @@ private fun DrawScope.drawRoads(view: MapView, routes: List<MapRoute>, roads: Li
             }
         }
         val bright = (0.6f + 0.1f * route.visits).coerceAtMost(1f)
-        val w = 3.5f + route.visits.coerceAtMost(5) * 0.8f
+        val w = 4f + route.visits.coerceAtMost(5) * 0.8f
         drawPath(path, Road.copy(alpha = 0.16f * bright), style = Stroke(w * 4.5f, cap = StrokeCap.Round, join = StrokeJoin.Round))
         drawPath(path, Road.copy(alpha = bright), style = Stroke(w, cap = StrokeCap.Round, join = StrokeJoin.Round))
         drawPath(path, RoadCore.copy(alpha = bright), style = Stroke(w * 0.35f, cap = StrokeCap.Round, join = StrokeJoin.Round))

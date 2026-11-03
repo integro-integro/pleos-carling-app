@@ -205,7 +205,7 @@ fun HomeScreen(
                 )
             }
         }
-        if (showMap) CarlingMapScreen(data.mapRoutes, onClose = { showMap = false })
+        if (showMap) CarlingMapScreen(data.mapRoutes, store.routeTracks, onClose = { showMap = false })
         if (showFoods) {
             FoodsDialog(data, onEat = { store.eatFood(it) }, onClose = { showFoods = false })
         }
@@ -277,7 +277,7 @@ private fun StatusPanel(
                 icon = "⚡",
                 label = "XP",
                 value = if (next != null) "${data.totalXp} / ${next.cumXp}" else "${data.totalXp}",
-                progress = if (next != null) data.totalXp / next.cumXp.toFloat() else 1f,
+                progress = if (next != null) GrowthRules.stageProgress(data.totalXp, data.stageSpec.cumXp, next.cumXp) else 1f,
                 fill = listOf(Color(0xFFB6F28A), Color(0xFF4DBB5E)),
             )
             Spacer(Modifier.height(6.dp))
@@ -285,7 +285,7 @@ private fun StatusPanel(
                 icon = "🗺",
                 label = "MP",
                 value = if (next != null) "${data.totalMp} / ${next.cumMp}" else "${data.totalMp}",
-                progress = if (next != null) data.totalMp / next.cumMp.toFloat() else 1f,
+                progress = if (next != null) GrowthRules.stageProgress(data.totalMp, data.stageSpec.cumMp, next.cumMp) else 1f,
                 fill = listOf(Color(0xFF9BD0FF), Color(0xFF3B82E6)),
             )
             Spacer(Modifier.height(8.dp))
@@ -367,11 +367,12 @@ private val tutorialSections: List<Triple<String, String, String>> = listOf(
     Triple("🃏", "우리의 트립카드", "트립은 자동으로 쌓여요. 목적지별 최근 20곳을 보여주고, 같은 곳을 다시 가면 맨 위로 올라와요. 모든 트립은 Drive Log에 남아요."),
     Triple("⚡", "성장 에너지 (XP)", "트립·안전운전·연료 보충·교감으로 하루 최대 50. 180일 동안 성장 6번 + 진화 3번을 거쳐요."),
     Triple("⭐", "지도 포인트 (MP)", "트립카드를 저장하면 받아요. 새 길 +3, 익숙한 길 +1 (운행일마다 2장까지). 저장은 그보다 많이 해도 돼요."),
-    Triple("🗺", "지도", "처음엔 비어 있어요. 트립카드가 생길 때마다 길이 켜지고, 자주 달릴수록 밝아져요. 길 모양은 실제 달린 길과 달라요. 위치 사용이 켜져 있어야 해요."),
+    Triple("🗺", "지도", "처음엔 비어 있어요. 트립카드가 생길 때마다 실제 달린 길이 켜지고, 자주 달릴수록 밝아져요. 확대하면 경로를 자세히 볼 수 있어요. 위치 사용이 켜져 있어야 해요."),
     Triple("🌤", "날씨 인사", "날짜가 바뀐 뒤 첫 운전 때 말을 걸어요. 오전에는 오늘 예보를, 오후에는 지금 날씨를 알려줘요. 위치 사용이 켜져 있어야 해요."),
     Triple("🖼", "배경", "알이 깨어나면 도시·바닷가 해안·맑은 하늘·고요한 숲 중에서 고를 수 있어요. 낮과 밤은 차량 시계에 맞춰 저절로 바뀌어요."),
     Triple("🎁", "아이템", "성장 1이 되면 열려요. 선글라스·목걸이·신발 등 10가지 중 하나를 골라 카링을 꾸며 보세요."),
     Triple("🍊", "지역 특산물", "제주도·강원도·부산·대구·전주를 방문하면 특산물을 받아요(지역마다 하루 1개, 위치 사용 필요). 배고플 때 먹이면 경험치가 더 많이 올라요."),
+    Triple("🌱", "게이지", "XP와 MP 숫자는 누적으로 보여요. 성장·진화하면 게이지가 모두 비워지고, 다음 단계까지 새로 채워요. 넘친 XP와 MP는 이어지지 않아요."),
     Triple("🎨", "계열", "처음엔 진주색 아기 키링이에요. 운전 습관에 따라 D14에 계열(바람·빛·나무·물·흙)이 정해지면 몸 색과 외형이 바뀌어요."),
     Triple("🏷", "이름", "자랄 때마다 이름이 바뀌어요. 바람 계열이면 산들링, 나래링을 거쳐 하늘링 완전체가 돼요. 빛은 섬광링, 나무는 우듬지링, 물은 바다링, 흙은 질주링이 마지막 모습이에요."),
     Triple("✨", "진화", "D30·D90·D180에 진화카드를 받고 특별 퀘스트를 채우면 진화해요. 단계는 건너뛰지 않고, 성장할 때는 알림과 함께 '짠' 하고 바뀌고, 진화할 때는 변신 장면과 함께 새로운 동작을 배워요."),
