@@ -24,7 +24,8 @@ import work.integro.carling.vehicle.VehicleState
 
 @Composable
 fun CarlingApp(store: CarlingStore, vehicle: VehicleState, onLocationAllowed: () -> Unit = {}) {
-    CarlingTheme(store.data.scene, store.devNightness) {
+    // 알을 깨우기 전에는 고른 배경과 낮밤을 반영하지 않고 밤하늘로 둔다
+    CarlingTheme(store.data.scene, showScene = store.data.hatched, nightnessOverride = store.devNightness) {
         // 주행 중에는 돌보기 화면을 아예 그리지 않는다 (안전 원칙: 주행 중 터치 없음)
         if (vehicle.isDriving) {
             DrivingMode(store.data)

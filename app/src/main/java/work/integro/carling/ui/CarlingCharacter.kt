@@ -58,7 +58,7 @@ private val HeartLight = Color(0xFFB7FFE6)
 
 /** 일러스트 한 장에 숨쉬기와 심장 박동, 그림자, 모자를 입혀 그린다. */
 @Composable
-private fun ArtDrawing(
+internal fun ArtDrawing(
     art: CarlingArt,
     size: Dp,
     modifier: Modifier,
@@ -66,6 +66,7 @@ private fun ArtDrawing(
     rockDegrees: Float = 0f,
     hat: Boolean = false,
     beating: Boolean = true,
+    overlay: (DrawScope.(s: Float) -> Unit)? = null,
 ) {
     val transition = rememberInfiniteTransition(label = "art")
     val breath by transition.animateFloat(0.985f, 1.015f, infiniteRepeatable(tween(1600), RepeatMode.Reverse), label = "breath")
@@ -97,6 +98,7 @@ private fun ArtDrawing(
                     val glow = art.heartRadius * s * beat
                     drawCircle(Brush.radialGradient(listOf(HeartLight.copy(alpha = 0.6f), Color.Transparent), at, glow), glow, at)
                 }
+                overlay?.invoke(this, s)
                 val body = art.bodyCenter
                 if (hat && body != null) drawHat(Offset(body.x * s, body.y * s), art.bodyRadius * s)
                 drawSparkles(center, s * 0.42f, Color.White, twinkle)

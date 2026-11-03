@@ -51,13 +51,13 @@ private val CarlingColors = darkColorScheme(
 val LocalCompact = staticCompositionLocalOf { false }
 
 @Composable
-fun CarlingTheme(scene: Scene, nightnessOverride: Float? = null, content: @Composable () -> Unit) {
+fun CarlingTheme(scene: Scene, showScene: Boolean, nightnessOverride: Float? = null, content: @Composable () -> Unit) {
     val nightness = nightnessOverride ?: rememberRealNightness()
     MaterialTheme(colorScheme = CarlingColors) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val compact = maxWidth < 1100.dp || maxWidth < maxHeight
             CompositionLocalProvider(LocalCompact provides compact, LocalNightness provides nightness) {
-                SceneBackground(scene, nightness)
+                if (showScene) SceneBackground(scene, nightness) else NightSky()
                 content()
             }
         }

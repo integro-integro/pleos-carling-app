@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -41,6 +42,7 @@ import work.integro.carling.R
 import work.integro.carling.data.Scene
 import work.integro.carling.game.nightnessAt
 import java.time.LocalTime
+import kotlin.random.Random
 
 /** 지금 밤의 정도(0 = 낮, 1 = 밤). 배경 선택 화면의 미리보기도 같은 값을 쓴다. */
 val LocalNightness = compositionLocalOf { 1f }
@@ -59,6 +61,21 @@ fun rememberRealNightness(): Float {
 }
 
 private fun currentNightness(): Float = LocalTime.now().let { nightnessAt(it.hour, it.minute) }
+
+/** 알이 깨어나기 전의 별이 흩어진 밤하늘. 시간과 고른 배경에 상관없이 같다. */
+@Composable
+fun NightSky() {
+    val stars = remember {
+        val rnd = Random(7)
+        List(60) { Triple(rnd.nextFloat(), rnd.nextFloat(), rnd.nextFloat()) }
+    }
+    Canvas(Modifier.fillMaxSize()) {
+        drawRect(Brush.verticalGradient(listOf(NightDeep, Night, Color(0xFF161C4E))))
+        stars.forEach { (x, y, s) ->
+            drawCircle(Color.White.copy(alpha = 0.15f + s * 0.45f), 1f + s * 2.2f, Offset(x * size.width, y * size.height))
+        }
+    }
+}
 
 /** 장면별 낮·밤 3D 일러스트. 같은 구도로 그려져 있어 겹쳐서 낮밤을 전환한다. */
 @DrawableRes

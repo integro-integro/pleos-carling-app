@@ -24,8 +24,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,19 +91,14 @@ fun EggArrivalScreen(onDevFirstDrive: (() -> Unit)? = null) = Step {
     }
 }
 
-/** 2 · 트립카드 #001 — 카드나 알을 톡 터치해 깨우기. */
+/** 2 · 트립카드 #001 — 알을 눌러 금이 가게 하고, 네 번째에 깨어난다. */
 @Composable
 fun AwakenScreen(data: CarlingData, onWake: () -> Unit) = Step {
     val compact = LocalCompact.current
-    // 카드 어디를 눌러도 깨어나도록 — 카드가 눌리는 것처럼 보이던 혼란을 없앤다
-    val wake = Modifier.clickable(
-        interactionSource = remember { MutableInteractionSource() },
-        indication = null,
-        onClick = onWake,
-    )
+    var taps by rememberSaveable { mutableIntStateOf(0) }
     Text("TRIP CARD #001", fontSize = 18.sp, color = Gold, fontWeight = FontWeight.Bold, modifier = Modifier.onScene())
     Spacer(Modifier.height(12.dp))
-    PanelBox(Modifier.widthIn(max = 640.dp).then(wake)) {
+    PanelBox(Modifier.widthIn(max = 640.dp)) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             data.firstTripPlaceName?.let { TripCardLine("여정", it) }
             val dist = data.firstTripDistanceKm?.takeIf { it > 0.05f }?.let { " · %.1fkm".format(it) } ?: ""
@@ -111,13 +108,30 @@ fun AwakenScreen(data: CarlingData, onWake: () -> Unit) = Step {
         }
     }
     Spacer(Modifier.height(24.dp))
-    Speech("함께 달린 길이 첫 트립카드가 되었어요. 알을 톡 깨워줄래요?")
+    // 글 길이가 달라도 줄 수가 같아야 알 위치가 움직이지 않아 연달아 누를 수 있다
+    Speech(
+        when (taps) {
+            0 -> "첫 트립카드가 되었어요. 알을 눌러 깨워줄래요?"
+            1 -> "어? 알에 금이 갔어요!"
+            2 -> "안에서 무언가 움직여요!"
+            3 -> "조금만 더! 곧 나올 것 같아요!"
+            else -> "톡!"
+        },
+    )
     Spacer(Modifier.height(16.dp))
-    EggDrawing(size = if (compact) 240.dp else 300.dp, modifier = wake)
+    HatchingEgg(
+        size = if (compact) 240.dp else 300.dp,
+        taps = taps,
+        onTap = { taps += 1 },
+        onHatched = onWake,
+    )
     Spacer(Modifier.height(16.dp))
-    Button(onClick = onWake, modifier = Modifier.height(64.dp).width(260.dp)) { Text("알 깨우기", fontSize = 24.sp) }
-    Spacer(Modifier.height(8.dp))
-    Text("알이나 카드를 톡 누르면 카링이 고개를 내밀어요", fontSize = 18.sp, color = Ink, modifier = Modifier.onScene())
+    Text(
+        "알을 눌러 주세요 · 남은 횟수 ${(EGG_TAPS_TO_HATCH - taps).coerceAtLeast(0)}번",
+        fontSize = 18.sp,
+        color = Ink,
+        modifier = Modifier.onScene(),
+    )
 }
 
 @Composable
