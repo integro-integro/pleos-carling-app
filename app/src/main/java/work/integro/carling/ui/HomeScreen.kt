@@ -430,7 +430,8 @@ private fun DevPanel(store: CarlingStore, vehicle: VehicleState, modifier: Modif
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(onClick = { store.clock.skipDays(1) }) { Text("다음 날로") }
-                OutlinedButton(onClick = store::reset) { Text("처음부터") }
+                OutlinedButton(onClick = store::devRestartFromD1) { Text("D1부터") }
+                OutlinedButton(onClick = store::reset) { Text("알부터") }
             }
         }
     }

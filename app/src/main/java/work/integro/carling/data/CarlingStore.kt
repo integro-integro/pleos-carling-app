@@ -438,6 +438,30 @@ class CarlingStore(context: Context, val clock: GameClock) {
         refreshStage()
     }
 
+    /**
+     * 개발용: 이름·첫 만남·설정은 그대로 두고 D1 아기 카링으로 되돌린다.
+     * 게임 시계와 성장, 계열, 트립카드, 아이템을 모두 초기화한다.
+     */
+    fun devRestartFromD1() {
+        clock.reset()
+        devLook = null
+        val old = data
+        update {
+            CarlingData(
+                hatched = true,
+                personality = old.personality,
+                name = old.name,
+                birthDate = clock.today().toString(),
+                firstTripDone = true,
+                firstPetDone = true,
+                guideSeen = true,
+                locationConsent = old.locationConsent,
+                voiceOn = old.voiceOn,
+                scene = old.scene,
+            )
+        }
+    }
+
     fun reset() {
         prefs.edit().clear().apply()
         clock.reset()

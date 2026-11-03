@@ -45,11 +45,40 @@ private val WindArts = listOf(
     CarlingArt(R.drawable.carling_stage9, 1.14f, Offset(0.22f, 0.57f), 0.07f, null, mirrored = true),
 )
 
-/** 해당 단계의 일러스트. 일러스트가 아직 없는 계열의 성장 2 이후면 null. */
-internal fun carlingArt(stageIndex: Int, lineage: Lineage?): CarlingArt? = when {
-    stageIndex < PearlArts.size -> PearlArts[stageIndex.coerceAtLeast(0)]
-    lineage == null || lineage == Lineage.WIND -> WindArts.getOrNull(stageIndex - PearlArts.size)
-    else -> null
+/** 성장 2부터의 빛 계열 일러스트. 진화 2부터 자동차 모습이다. */
+private val LightArts = listOf(
+    CarlingArt(R.drawable.carling_light_stage2, 0.86f, Offset(0.479f, 0.656f), 0.138f, Offset(0.493f, 0.84f), Offset(0.486f, 0.490f), 0.331f),
+    CarlingArt(R.drawable.carling_light_stage3, 1.2f, Offset(0.474f, 0.661f), 0.114f, Offset(0.489f, 0.84f), Offset(0.486f, 0.557f), 0.259f),
+    CarlingArt(R.drawable.carling_light_stage4, 1.24f, Offset(0.429f, 0.656f), 0.105f, Offset(0.455f, 0.84f), Offset(0.439f, 0.547f), 0.251f),
+    CarlingArt(R.drawable.carling_light_stage5, 1.3f, Offset(0.379f, 0.671f), 0.099f, Offset(0.415f, 0.84f), Offset(0.407f, 0.566f), 0.243f),
+    CarlingArt(R.drawable.carling_light_stage6, 1.1f, Offset(0.581f, 0.608f), 0.086f, Offset(0.434f, 0.84f), mirrored = true),
+    CarlingArt(R.drawable.carling_light_stage7, 1.1f, Offset(0.423f, 0.634f), 0.087f, Offset(0.406f, 0.84f), mirrored = true),
+    CarlingArt(R.drawable.carling_light_stage8, 1.12f, Offset(0.410f, 0.639f), 0.080f, Offset(0.337f, 0.84f), mirrored = true),
+    CarlingArt(R.drawable.carling_light_stage9, 1.14f, Offset(0.427f, 0.645f), 0.086f, Offset(0.339f, 0.84f), mirrored = true),
+)
+
+/** 성장 2부터의 나무 계열 일러스트. 진화 2부터 네 바퀴 달린 모습이다. */
+private val TreeArts = listOf(
+    CarlingArt(R.drawable.carling_tree_stage2, 0.86f, Offset(0.479f, 0.658f), 0.138f, Offset(0.490f, 0.84f), Offset(0.486f, 0.491f), 0.331f),
+    CarlingArt(R.drawable.carling_tree_stage3, 1.19f, Offset(0.463f, 0.706f), 0.099f, Offset(0.470f, 0.84f), Offset(0.470f, 0.587f), 0.247f),
+    CarlingArt(R.drawable.carling_tree_stage4, 1.24f, Offset(0.421f, 0.702f), 0.099f, Offset(0.436f, 0.84f), Offset(0.439f, 0.580f), 0.247f),
+    CarlingArt(R.drawable.carling_tree_stage5, 1.25f, Offset(0.410f, 0.696f), 0.110f, Offset(0.422f, 0.84f), Offset(0.423f, 0.571f), 0.255f),
+    CarlingArt(R.drawable.carling_tree_stage6, 1.18f, Offset(0.362f, 0.638f), 0.070f, Offset(0.481f, 0.84f), mirrored = true),
+    CarlingArt(R.drawable.carling_tree_stage7, 1.18f, Offset(0.283f, 0.587f), 0.070f, Offset(0.364f, 0.84f), mirrored = true),
+    CarlingArt(R.drawable.carling_tree_stage8, 1.2f, Offset(0.260f, 0.587f), 0.070f, Offset(0.354f, 0.84f), mirrored = true),
+    CarlingArt(R.drawable.carling_tree_stage9, 1.2f, Offset(0.226f, 0.601f), 0.070f, Offset(0.393f, 0.84f), mirrored = true),
+)
+
+/** 해당 단계의 일러스트. 일러스트가 아직 없는 계열(물·흙)의 성장 2 이후면 null. */
+internal fun carlingArt(stageIndex: Int, lineage: Lineage?): CarlingArt? {
+    if (stageIndex < PearlArts.size) return PearlArts[stageIndex.coerceAtLeast(0)]
+    val arts = when (lineage) {
+        null, Lineage.WIND -> WindArts
+        Lineage.LIGHT_RAY -> LightArts
+        Lineage.TREE -> TreeArts
+        Lineage.WATER, Lineage.EARTH -> return null
+    }
+    return arts.getOrNull(stageIndex - PearlArts.size)
 }
 
 /** 자는 모습 일러스트는 진화 1의 젤리 형태에 맞춰 그려졌다. */

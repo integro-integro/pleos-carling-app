@@ -136,7 +136,7 @@ fun CarlingDrawing(
     val art = carlingArt(stageIndex, lineage)
     val shownItem = item.takeIf { GrowthRules.itemsUnlocked(stageIndex) }
     if (art != null) {
-        val sleeping = asleep && stageIndex == SLEEP_ART_STAGE
+        val sleeping = asleep && stageIndex == SLEEP_ART_STAGE && (lineage == null || lineage == Lineage.WIND)
         ArtDrawing(art, size, modifier, res = if (sleeping) SleepArtRes else art.res, item = shownItem, beating = !sleeping)
         return
     }
