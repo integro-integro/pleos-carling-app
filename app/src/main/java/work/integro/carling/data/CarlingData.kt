@@ -13,7 +13,15 @@ data class CarlingData(
     val personality: Personality? = null,
     val name: String? = null,
 
-    // 첫 5분: 짧은 질문 2개 → 성장 방법 안내 → 위치 동의(null = 아직 묻지 않음)
+    // 첫 만남(v1): 첫 운전이 알을 깨운다 → 트립카드 #001 → 이름 → 첫 교감 → 지도 첫 불빛 → 위치 동의
+    val firstTripDone: Boolean = false,   // 첫 운전이 끝나 알에 금이 갔는가
+    val firstPetDone: Boolean = false,    // 태어난 뒤 첫 쓰다듬기(친밀도 퀘스트 소개)를 했는가
+    val firstTripMinutes: Int = 0,        // 트립카드 #001 — 함께한 시간
+    val firstTripDistanceKm: Float? = null,
+    val firstTripSafety: Int = 0,         // 트립카드 #001 — 안전운전 점수
+    val firstTripPlaceName: String? = null,
+
+    // (구) 첫 5분 질문 — v1에서는 쓰지 않지만 과거 저장 호환을 위해 남김
     val routine: Routine? = null,
     val usualLight: Light? = null,
     val guideSeen: Boolean = false,

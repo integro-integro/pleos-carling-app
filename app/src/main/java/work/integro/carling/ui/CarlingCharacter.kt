@@ -28,65 +28,74 @@ import work.integro.carling.game.Stage
 import work.integro.carling.game.Path as GrowthPath
 
 /*
- * 설계서(CARLING 서비스 시각화) 캐릭터를 벡터로 다시 그린 것.
- * 토끼 귀 + 머리 새싹 + 반투명하게 빛나는 몸 + 큰 눈. 정식 일러스트가 나오면 이 파일만 교체한다.
+ * 서비스 시각화 v1 캐릭터를 벡터로 그린 것.
+ * 반투명 하늘색 젤리 블롭 + 가슴 중앙에 초록빛으로 뛰는 작은 심장(하트) + 큰 눈·분홍 볼.
+ * 계열/시간대 색은 glow 로 몸에 번지게 하고, 심장은 늘 초록으로 둔다('미래에서 온 작은 심장').
+ * 정식 일러스트가 나오면 이 파일만 교체한다.
  */
 
-/** 진화 전 모든 카링의 공통 빛 — '모든 카링은 같은 알에서 태어난다'. */
-val BaseGlow = Color(0xFFB8C6FF)
+/** 진화 전 모든 카링의 공통 몸빛 — '모두 같은 젤리 알에서 시작한다'. 하늘색. */
+val BaseGlow = Color(0xFF9FD4FF)
 
-private val EyeNavy = Color(0xFF1E2550)
+private val EyeNavy = Color(0xFF1B2440)
+private val EyeSoft = Color(0xFF34406E)
 private val MouthRose = Color(0xFF8A2E52)
 private val Tongue = Color(0xFFFF8FA8)
-private val Blush = Color(0x66FF8FB1)
-private val SproutGreen = Color(0xFF9BE59F)
-private val SproutDeep = Color(0xFF5DBB78)
+private val Blush = Color(0x73FF93B8)
 
-/** 설계서의 알: 유리처럼 빛나는 알 안에 작은 새싹 빛. */
+// 작은 심장 — 초록 하트
+private val HeartGreen = Color(0xFF34E0A4)
+private val HeartDeep = Color(0xFF17B583)
+private val HeartLight = Color(0xFFB7FFE6)
+
+/** 서비스 시각화 v1 의 알: 유리처럼 빛나는 하늘색 젤리 알 안에서 초록 심장이 뛴다. */
 @Composable
 fun EggDrawing(size: Dp, modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "egg")
-    val wobble by transition.animateFloat(-5f, 5f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "wobble")
+    val wobble by transition.animateFloat(-4f, 4f, infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "wobble")
+    val beat by transition.animateFloat(0.86f, 1.14f, infiniteRepeatable(tween(820), RepeatMode.Reverse), label = "beat")
     val twinkle by transition.animateFloat(0.4f, 1f, infiniteRepeatable(tween(1200), RepeatMode.Reverse), label = "twinkle")
     Canvas(modifier.size(size)) {
         val s = this.size.minDimension
         val c = center
-        drawCircle(Brush.radialGradient(listOf(BaseGlow.copy(alpha = 0.55f), Color.Transparent), c, s * 0.5f), s * 0.5f, c)
-        rotate(wobble, pivot = c + Offset(0f, s * 0.35f)) {
-            val w = s * 0.56f
-            val h = s * 0.74f
+        drawCircle(Brush.radialGradient(listOf(BaseGlow.copy(alpha = 0.5f), Color.Transparent), c, s * 0.5f), s * 0.5f, c)
+        rotate(wobble, pivot = c + Offset(0f, s * 0.36f)) {
+            val w = s * 0.58f
+            val h = s * 0.76f
             val topLeft = c - Offset(w / 2, h / 2)
+            // 바닥 그림자
+            drawOval(Color(0x33000000), c + Offset(-w * 0.42f, h * 0.44f), Size(w * 0.84f, h * 0.12f))
+            // 젤리 알 본체 (반투명)
             drawOval(
                 Brush.radialGradient(
-                    listOf(Color.White, Color(0xFFDDE4FF), BaseGlow, Color(0xFF8E9BFF)),
-                    center = c - Offset(w * 0.15f, h * 0.2f),
-                    radius = h * 0.75f,
+                    listOf(Color.White, lerp(Color.White, BaseGlow, 0.35f), lerp(Color.White, BaseGlow, 0.8f), lerp(BaseGlow, Color(0xFF4FA6EE), 0.4f)),
+                    center = c - Offset(w * 0.16f, h * 0.22f),
+                    radius = h * 0.78f,
                 ),
                 topLeft,
                 Size(w, h),
-                alpha = 0.92f,
+                alpha = 0.9f,
             )
-            // 안쪽 새싹 빛
-            drawCircle(
-                Brush.radialGradient(listOf(Color.White, SproutGreen.copy(alpha = 0.0f)), c + Offset(0f, h * 0.12f), w * 0.3f),
-                w * 0.3f,
-                c + Offset(0f, h * 0.12f),
-            )
-            drawSprout(c + Offset(0f, h * 0.22f), w * 0.55f)
+            drawOval(BaseGlow.copy(alpha = 0.5f), topLeft, Size(w, h), style = Stroke(s * 0.012f))
+            // 안에서 뛰는 초록 심장
+            val heartC = c + Offset(0f, h * 0.1f)
+            drawCircle(Brush.radialGradient(listOf(HeartLight.copy(alpha = 0.9f), Color.Transparent), heartC, w * 0.42f * beat), w * 0.42f * beat, heartC)
+            drawHeart(heartC, w * 0.17f * beat)
             // 유리 하이라이트
-            drawOval(Color.White.copy(alpha = 0.55f), topLeft + Offset(w * 0.2f, h * 0.12f), Size(w * 0.18f, h * 0.28f))
+            drawOval(Color.White.copy(alpha = 0.6f), topLeft + Offset(w * 0.18f, h * 0.1f), Size(w * 0.2f, h * 0.3f))
+            drawCircle(Color.White.copy(alpha = 0.75f), w * 0.05f, topLeft + Offset(w * 0.68f, h * 0.2f))
         }
         drawSparkles(c, s * 0.42f, Color.White, twinkle)
     }
 }
 
 /**
- * 카링.
- * - 성장 단계: 크기, 귀(아기는 짧게 쫑긋, 성장 후 길게 늘어짐)
- * - 빛(진화): 몸빛·발광 색 / 진화 전에는 공통 빛
- * - 길(진화): 단골은 포근한 머플러, 탐험은 별 지도 배낭 + 반짝이는 눈
- * - 성격: 표정만 (나른=눈웃음, 도도=활짝, 루미=잔잔한 미소)
- * - 첫 드라이브 선물: 모자
+ * 카링 (아기~성장).
+ * - stage: 크기
+ * - glow: 몸빛(계열·시간대 색) / 진화 전에는 공통 하늘빛
+ * - mood: 표정만 (나른=눈웃음, 도도=활짝, 루미=잔잔한 미소)
+ * - hat: 첫 드라이브 선물 모자
+ * - path: 탐험이면 눈에 작은 별 반짝임
  */
 @Composable
 fun CarlingDrawing(
@@ -100,209 +109,160 @@ fun CarlingDrawing(
 ) {
     val transition = rememberInfiniteTransition(label = "carling")
     val breath by transition.animateFloat(0.97f, 1.03f, infiniteRepeatable(tween(1600), RepeatMode.Reverse), label = "breath")
+    val beat by transition.animateFloat(0.84f, 1.16f, infiniteRepeatable(tween(820), RepeatMode.Reverse), label = "beat")
     val twinkle by transition.animateFloat(0.3f, 1f, infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "twinkle")
     val stageScale = when (stage) {
-        Stage.EGG, Stage.BABY -> 0.78f
-        Stage.GROWN -> 0.9f
+        Stage.EGG, Stage.BABY -> 0.8f
+        Stage.GROWN -> 0.92f
         Stage.EVOLVED -> 1f
     }
-    val baby = stage == Stage.BABY || stage == Stage.EGG
     Canvas(modifier.size(size)) {
         val s = this.size.minDimension
-        val r = s * 0.27f * stageScale
-        val c = Offset(center.x, center.y + s * 0.08f)
+        val r = s * 0.3f * stageScale
+        val c = Offset(center.x, center.y + s * 0.06f)
 
-        // 바깥 발광
-        drawCircle(Brush.radialGradient(listOf(glow.copy(alpha = 0.6f), Color.Transparent), c, r * 2.1f), r * 2.1f, c)
-        drawOval(glow.copy(alpha = 0.25f), c + Offset(-r * 1.1f, r * 0.95f), Size(r * 2.2f, r * 0.35f))
+        // 바깥 발광 + 바닥 그림자
+        drawCircle(Brush.radialGradient(listOf(glow.copy(alpha = 0.55f), Color.Transparent), c, r * 2.0f), r * 2.0f, c)
+        drawOval(Color(0x2E000000), c + Offset(-r * 1.0f, r * 1.02f), Size(r * 2.0f, r * 0.3f))
 
         scale(1f, breath, pivot = c + Offset(0f, r)) {
-            if (path == GrowthPath.EXPLORER) drawBackpack(c, r)
-            drawEars(c, r, glow, baby)
-            drawBody(c, r, glow)
+            drawArms(c, r, glow)
             drawFeet(c, r, glow)
+            drawBlobBody(c, r, glow)
+            drawHeartCore(c, r, beat)
             drawFace(c, r, mood, sparkle = path == GrowthPath.EXPLORER)
-            if (path == GrowthPath.REGULAR) drawMuffler(c, r)
-            if (path == GrowthPath.EXPLORER) drawStrap(c, r)
-            drawSprout(c + Offset(r * 0.05f, -r * 0.88f), r * 0.75f)
             if (hat) drawHat(c, r)
         }
-        drawSparkles(c, r * 1.75f, lerp(Color.White, glow, 0.3f), twinkle)
+        drawSparkles(c, r * 1.7f, lerp(Color.White, glow, 0.3f), twinkle)
     }
 }
 
 private fun bodyBrush(c: Offset, r: Float, glow: Color) = Brush.radialGradient(
-    listOf(Color.White, lerp(Color.White, glow, 0.25f), lerp(Color.White, glow, 0.7f), glow),
-    center = c - Offset(r * 0.35f, r * 0.45f),
-    radius = r * 1.6f,
+    listOf(Color.White, lerp(Color.White, glow, 0.3f), lerp(Color.White, glow, 0.72f), lerp(glow, Color(0xFF4FA6EE), 0.35f)),
+    center = c - Offset(r * 0.38f, r * 0.55f),
+    radius = r * 1.85f,
 )
 
-private fun DrawScope.drawBody(c: Offset, r: Float, glow: Color) {
-    val w = r * 2.1f
-    val h = r * 1.86f
-    drawOval(bodyBrush(c, r, glow), c - Offset(w / 2, h / 2), Size(w, h), alpha = 0.96f)
+/** 둥근 젤리 몸통 — 반투명 광택. */
+private fun DrawScope.drawBlobBody(c: Offset, r: Float, glow: Color) {
+    val w = r * 2.15f
+    val h = r * 2.05f
+    val topLeft = c - Offset(w / 2, h / 2)
+    drawOval(bodyBrush(c, r, glow), topLeft, Size(w, h), alpha = 0.93f)
     // 반투명 테두리 빛
-    drawOval(glow.copy(alpha = 0.55f), c - Offset(w / 2, h / 2), Size(w, h), style = Stroke(r * 0.05f))
-    // 위쪽 광택
-    drawOval(Color.White.copy(alpha = 0.6f), c + Offset(-r * 0.55f, -r * 0.75f), Size(r * 0.55f, r * 0.28f))
+    drawOval(glow.copy(alpha = 0.5f), topLeft, Size(w, h), style = Stroke(r * 0.045f))
+    // 위쪽 큰 광택
+    drawOval(Color.White.copy(alpha = 0.62f), c + Offset(-r * 0.62f, -r * 0.82f), Size(r * 0.7f, r * 0.4f))
+    // 작은 반짝 점
+    drawCircle(Color.White.copy(alpha = 0.8f), r * 0.08f, c + Offset(r * 0.5f, -r * 0.7f))
 }
 
-private fun DrawScope.drawEars(c: Offset, r: Float, glow: Color, baby: Boolean) {
-    val earBrush = Brush.linearGradient(
-        listOf(Color.White, lerp(Color.White, glow, 0.6f), glow.copy(alpha = 0.85f)),
-        start = c - Offset(0f, r * 1.5f),
-        end = c + Offset(0f, r * 0.8f),
-    )
-    val inner = lerp(glow, Color(0xFF7FA8FF), 0.35f).copy(alpha = 0.55f)
+/** 양옆의 작고 뭉툭한 젤리 팔. */
+private fun DrawScope.drawArms(c: Offset, r: Float, glow: Color) {
+    val arm = lerp(Color.White, glow, 0.5f)
     for (side in listOf(-1f, 1f)) {
-        if (baby) {
-            // 아기: 짧게 쫑긋
-            val center = c + Offset(side * r * 0.5f, -r * 1.15f)
-            rotate(side * 18f, pivot = center + Offset(0f, r * 0.35f)) {
-                drawOval(earBrush, center - Offset(r * 0.24f, r * 0.45f), Size(r * 0.48f, r * 0.9f))
-                drawOval(inner, center - Offset(r * 0.11f, r * 0.3f), Size(r * 0.22f, r * 0.6f))
-            }
-        } else {
-            // 성장 후: 머리 위에서 옆으로 길게 늘어진 귀 (설계서 '성장한 카링')
-            val pivot = c + Offset(side * r * 0.5f, -r * 0.72f)
-            rotate(side * 148f, pivot = pivot) {
-                drawOval(earBrush, pivot - Offset(r * 0.3f, r * 1.7f), Size(r * 0.6f, r * 1.85f))
-                drawOval(inner, pivot - Offset(r * 0.13f, r * 1.5f), Size(r * 0.26f, r * 1.35f))
-            }
+        val a = c + Offset(side * r * 1.0f, r * 0.42f)
+        rotate(side * 18f, pivot = a) {
+            drawOval(arm, a - Offset(r * 0.28f, r * 0.22f), Size(r * 0.56f, r * 0.44f), alpha = 0.95f)
         }
     }
 }
 
 private fun DrawScope.drawFeet(c: Offset, r: Float, glow: Color) {
-    val foot = lerp(Color.White, glow, 0.45f)
-    drawOval(foot, c + Offset(-r * 0.75f, r * 0.7f), Size(r * 0.5f, r * 0.32f))
-    drawOval(foot, c + Offset(r * 0.25f, r * 0.7f), Size(r * 0.5f, r * 0.32f))
+    val foot = lerp(Color.White, glow, 0.5f)
+    drawOval(foot, c + Offset(-r * 0.66f, r * 0.82f), Size(r * 0.56f, r * 0.34f))
+    drawOval(foot, c + Offset(r * 0.1f, r * 0.82f), Size(r * 0.56f, r * 0.34f))
+}
+
+/** 가슴 중앙에서 뛰는 초록 심장. */
+private fun DrawScope.drawHeartCore(c: Offset, r: Float, beat: Float) {
+    val hc = c + Offset(0f, r * 0.52f)
+    drawCircle(Brush.radialGradient(listOf(HeartLight.copy(alpha = 0.85f), Color.Transparent), hc, r * 0.7f * beat), r * 0.7f * beat, hc)
+    drawHeart(hc, r * 0.3f * beat)
+}
+
+private fun DrawScope.drawHeart(center: Offset, hw: Float) {
+    val p = Path().apply {
+        moveTo(center.x, center.y + hw * 0.95f)
+        cubicTo(center.x - hw * 1.5f, center.y - hw * 0.1f, center.x - hw * 0.65f, center.y - hw * 1.15f, center.x, center.y - hw * 0.3f)
+        cubicTo(center.x + hw * 0.65f, center.y - hw * 1.15f, center.x + hw * 1.5f, center.y - hw * 0.1f, center.x, center.y + hw * 0.95f)
+        close()
+    }
+    drawPath(p, Brush.radialGradient(listOf(HeartLight, HeartGreen, HeartDeep), center - Offset(hw * 0.3f, hw * 0.4f), hw * 1.8f))
+    drawPath(p, Color.White.copy(alpha = 0.5f), style = Stroke(hw * 0.08f))
 }
 
 private fun DrawScope.drawFace(c: Offset, r: Float, mood: Personality?, sparkle: Boolean) {
-    val eyeY = c.y - r * 0.02f
+    val eyeY = c.y - r * 0.2f
     for (side in listOf(-1f, 1f)) {
-        val eye = Offset(c.x + side * r * 0.4f, eyeY)
+        val eye = Offset(c.x + side * r * 0.46f, eyeY)
         if (mood == Personality.NARUN) {
             // 나른: 포근한 눈웃음
             val arc = Path().apply {
-                moveTo(eye.x - r * 0.16f, eye.y + r * 0.04f)
-                quadraticTo(eye.x, eye.y - r * 0.16f, eye.x + r * 0.16f, eye.y + r * 0.04f)
+                moveTo(eye.x - r * 0.2f, eye.y + r * 0.05f)
+                quadraticTo(eye.x, eye.y - r * 0.2f, eye.x + r * 0.2f, eye.y + r * 0.05f)
             }
-            drawPath(arc, EyeNavy, style = Stroke(r * 0.07f, cap = StrokeCap.Round))
+            drawPath(arc, EyeNavy, style = Stroke(r * 0.08f, cap = StrokeCap.Round))
         } else {
-            drawOval(EyeNavy, eye - Offset(r * 0.17f, r * 0.21f), Size(r * 0.34f, r * 0.42f))
-            drawOval(Color(0xFF3B4C9A), eye - Offset(r * 0.12f, r * 0.02f), Size(r * 0.24f, r * 0.2f))
-            drawCircle(Color.White, r * 0.085f, eye + Offset(-r * 0.05f, -r * 0.09f))
-            drawCircle(Color.White, r * 0.04f, eye + Offset(r * 0.07f, r * 0.08f))
-            if (sparkle) drawStar(eye + Offset(r * 0.06f, -r * 0.13f), r * 0.07f, Color.White)
+            drawOval(EyeNavy, eye - Offset(r * 0.2f, r * 0.26f), Size(r * 0.4f, r * 0.52f))
+            drawOval(EyeSoft, eye - Offset(r * 0.14f, r * 0.02f), Size(r * 0.28f, r * 0.24f))
+            drawCircle(Color.White, r * 0.1f, eye + Offset(-r * 0.06f, -r * 0.11f))
+            drawCircle(Color.White, r * 0.05f, eye + Offset(r * 0.08f, r * 0.1f))
+            if (sparkle) drawStar(eye + Offset(r * 0.07f, -r * 0.15f), r * 0.08f, Color.White)
         }
     }
-    // 볼
-    drawOval(Blush, Offset(c.x - r * 0.82f, c.y + r * 0.14f), Size(r * 0.3f, r * 0.17f))
-    drawOval(Blush, Offset(c.x + r * 0.52f, c.y + r * 0.14f), Size(r * 0.3f, r * 0.17f))
+    // 분홍 볼
+    drawOval(Blush, Offset(c.x - r * 0.88f, c.y - r * 0.02f), Size(r * 0.34f, r * 0.2f))
+    drawOval(Blush, Offset(c.x + r * 0.54f, c.y - r * 0.02f), Size(r * 0.34f, r * 0.2f))
     // 입
-    val m = Offset(c.x, c.y + r * 0.26f)
+    val m = Offset(c.x, c.y + r * 0.1f)
     when (mood) {
         Personality.DODO, null -> {
             val mouth = Path().apply {
-                moveTo(m.x - r * 0.14f, m.y)
-                quadraticTo(m.x, m.y + r * 0.03f, m.x + r * 0.14f, m.y)
-                quadraticTo(m.x + r * 0.1f, m.y + r * 0.22f, m.x, m.y + r * 0.22f)
-                quadraticTo(m.x - r * 0.1f, m.y + r * 0.22f, m.x - r * 0.14f, m.y)
+                moveTo(m.x - r * 0.15f, m.y)
+                quadraticTo(m.x, m.y + r * 0.03f, m.x + r * 0.15f, m.y)
+                quadraticTo(m.x + r * 0.11f, m.y + r * 0.24f, m.x, m.y + r * 0.24f)
+                quadraticTo(m.x - r * 0.11f, m.y + r * 0.24f, m.x - r * 0.15f, m.y)
                 close()
             }
             drawPath(mouth, MouthRose)
-            drawOval(Tongue, Offset(m.x - r * 0.07f, m.y + r * 0.1f), Size(r * 0.14f, r * 0.1f))
+            drawOval(Tongue, Offset(m.x - r * 0.08f, m.y + r * 0.11f), Size(r * 0.16f, r * 0.11f))
         }
         Personality.NARUN -> {
             val smile = Path().apply {
-                moveTo(m.x - r * 0.1f, m.y + r * 0.02f)
-                quadraticTo(m.x, m.y + r * 0.12f, m.x + r * 0.1f, m.y + r * 0.02f)
+                moveTo(m.x - r * 0.11f, m.y + r * 0.02f)
+                quadraticTo(m.x, m.y + r * 0.13f, m.x + r * 0.11f, m.y + r * 0.02f)
             }
-            drawPath(smile, MouthRose, style = Stroke(r * 0.05f, cap = StrokeCap.Round))
+            drawPath(smile, MouthRose, style = Stroke(r * 0.055f, cap = StrokeCap.Round))
         }
         Personality.LUMI -> {
-            // 잔잔한 'ω' 미소
             val w = Path().apply {
-                moveTo(m.x - r * 0.13f, m.y)
-                quadraticTo(m.x - r * 0.065f, m.y + r * 0.1f, m.x, m.y)
-                quadraticTo(m.x + r * 0.065f, m.y + r * 0.1f, m.x + r * 0.13f, m.y)
+                moveTo(m.x - r * 0.14f, m.y)
+                quadraticTo(m.x - r * 0.07f, m.y + r * 0.11f, m.x, m.y)
+                quadraticTo(m.x + r * 0.07f, m.y + r * 0.11f, m.x + r * 0.14f, m.y)
             }
-            drawPath(w, MouthRose, style = Stroke(r * 0.045f, cap = StrokeCap.Round))
+            drawPath(w, MouthRose, style = Stroke(r * 0.05f, cap = StrokeCap.Round))
         }
     }
 }
 
-private fun DrawScope.drawSprout(base: Offset, size: Float) {
-    val tip = base + Offset(size * 0.04f, -size * 0.38f)
-    val stem = Path().apply {
-        moveTo(base.x, base.y)
-        quadraticTo(base.x - size * 0.06f, base.y - size * 0.2f, tip.x, tip.y)
-    }
-    drawPath(stem, SproutDeep, style = Stroke(size * 0.06f, cap = StrokeCap.Round))
-    val leaf = Brush.linearGradient(listOf(SproutGreen, SproutDeep), tip - Offset(size * 0.3f, size * 0.2f), tip)
-    rotate(-35f, pivot = tip) {
-        drawOval(leaf, tip - Offset(size * 0.34f, size * 0.12f), Size(size * 0.34f, size * 0.2f))
-    }
-    rotate(30f, pivot = tip) {
-        drawOval(leaf, tip - Offset(0f, size * 0.12f), Size(size * 0.3f, size * 0.18f))
-    }
-}
-
-private fun DrawScope.drawMuffler(c: Offset, r: Float) {
-    val knit = Color(0xFFFF8A80)
-    val knitDark = Color(0xFFE76F6F)
-    val top = c.y + r * 0.5f
-    drawRoundRect(knit, Offset(c.x - r * 0.95f, top), Size(r * 1.9f, r * 0.3f), CornerRadius(r * 0.15f))
-    for (i in 0..5) {
-        val x = c.x - r * 0.75f + i * r * 0.3f
-        drawLine(knitDark, Offset(x, top + r * 0.05f), Offset(x, top + r * 0.25f), r * 0.03f)
-    }
-    // 늘어진 끝
-    drawRoundRect(knit, Offset(c.x + r * 0.35f, top + r * 0.15f), Size(r * 0.26f, r * 0.6f), CornerRadius(r * 0.1f))
-    drawLine(knitDark, Offset(c.x + r * 0.37f, top + r * 0.68f), Offset(c.x + r * 0.59f, top + r * 0.68f), r * 0.04f)
-}
-
-private fun DrawScope.drawBackpack(c: Offset, r: Float) {
-    val bag = Color(0xFF2E3A80)
-    val topLeft = c + Offset(r * 0.6f, -r * 0.35f)
-    drawRoundRect(bag, topLeft, Size(r * 0.85f, r * 1.05f), CornerRadius(r * 0.22f))
-    drawRoundRect(Color(0xFF3D4CA0), topLeft + Offset(r * 0.08f, r * 0.08f), Size(r * 0.69f, r * 0.35f), CornerRadius(r * 0.15f))
-    // 별 지도
-    val gold = Color(0xFFFFE27A)
-    drawStar(topLeft + Offset(r * 0.3f, r * 0.62f), r * 0.09f, gold)
-    drawStar(topLeft + Offset(r * 0.58f, r * 0.8f), r * 0.06f, gold)
-    drawStar(topLeft + Offset(r * 0.6f, r * 0.5f), r * 0.05f, gold)
-    drawLine(gold.copy(alpha = 0.6f), topLeft + Offset(r * 0.3f, r * 0.62f), topLeft + Offset(r * 0.6f, r * 0.5f), r * 0.015f)
-    drawLine(gold.copy(alpha = 0.6f), topLeft + Offset(r * 0.6f, r * 0.5f), topLeft + Offset(r * 0.58f, r * 0.8f), r * 0.015f)
-}
-
-private fun DrawScope.drawStrap(c: Offset, r: Float) {
-    // 몸 오른쪽 가장자리에만 짧게 — 얼굴을 가리지 않도록
-    val strap = Path().apply {
-        moveTo(c.x + r * 0.95f, c.y + r * 0.05f)
-        quadraticTo(c.x + r * 0.7f, c.y + r * 0.45f, c.x + r * 0.62f, c.y + r * 0.78f)
-    }
-    drawPath(strap, Color(0xFF2E3A80), style = Stroke(r * 0.09f, cap = StrokeCap.Round))
-}
-
+/** 첫 드라이브 선물 모자 — 작은 고깔. */
 private fun DrawScope.drawHat(c: Offset, r: Float) {
-    val pivot = c + Offset(-r * 0.5f, -r * 0.82f)
-    rotate(-22f, pivot = pivot) {
+    val pivot = c + Offset(-r * 0.4f, -r * 0.92f)
+    rotate(-16f, pivot = pivot) {
         val hat = Path().apply {
-            moveTo(pivot.x - r * 0.32f, pivot.y)
-            lineTo(pivot.x + r * 0.32f, pivot.y)
-            lineTo(pivot.x, pivot.y - r * 0.6f)
+            moveTo(pivot.x - r * 0.34f, pivot.y)
+            lineTo(pivot.x + r * 0.34f, pivot.y)
+            lineTo(pivot.x, pivot.y - r * 0.62f)
             close()
         }
-        drawPath(hat, Brush.linearGradient(listOf(Color(0xFF6FE3D1), Color(0xFF3BB3A6)), pivot - Offset(0f, r * 0.6f), pivot))
-        drawRoundRect(Color.White, Offset(pivot.x - r * 0.36f, pivot.y - r * 0.06f), Size(r * 0.72f, r * 0.12f), CornerRadius(r * 0.06f))
-        drawCircle(Color(0xFFFFE27A), r * 0.09f, Offset(pivot.x, pivot.y - r * 0.62f))
+        drawPath(hat, Brush.linearGradient(listOf(Color(0xFF6FE3D1), Color(0xFF3BB3A6)), pivot - Offset(0f, r * 0.62f), pivot))
+        drawRoundRect(Color.White, Offset(pivot.x - r * 0.38f, pivot.y - r * 0.06f), Size(r * 0.76f, r * 0.12f), CornerRadius(r * 0.06f))
+        drawCircle(Color(0xFFFFE27A), r * 0.09f, Offset(pivot.x, pivot.y - r * 0.64f))
     }
 }
 
-/** 4갈래 반짝이 — 설계서 배경의 별빛. */
+/** 4갈래 반짝이 — 서비스 시각화 배경의 별빛. */
 private fun DrawScope.drawStar(at: Offset, size: Float, color: Color) {
     val p = Path().apply {
         moveTo(at.x, at.y - size)

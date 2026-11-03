@@ -50,19 +50,38 @@ class CarlingStore(context: Context, val clock: GameClock) {
         prefs.edit().putString(KEY_DATA, json.encodeToString(CarlingData.serializer(), data)).apply()
     }
 
-    // ---- 첫 5분 ----
+    // ---- 첫 만남(v1) ----
 
-    fun hatch() = update { it.copy(hatched = true) }
+    /** 알을 깨운다(톡 터치). 성격은 고르지 않고, 첫 운전을 함께한 시간대가 정한다. */
+    fun hatch() = update {
+        val personality = it.personality ?: personalityFor(it.lightTrips)
+        it.copy(hatched = true, personality = personality)
+    }
 
-    fun choosePersonality(value: Personality) = update { it.copy(personality = value) }
-
-    fun answerRoutine(value: Routine) = update { it.copy(routine = value) }
-
-    fun answerUsualLight(value: Light) = update { it.copy(usualLight = value) }
+    /** 태어난 뒤 첫 쓰다듬기 — 친밀도 퀘스트를 처음 배우는 순간. +5. */
+    fun completeFirstPet() = update {
+        val today = clock.today().toString()
+        it.copy(
+            firstPetDone = true,
+            petDate = today,
+            petsToday = 1,
+            intimacy = (it.intimacy + GrowthRules.TRIP_INTIMACY).coerceAtMost(100),
+        )
+    }
 
     fun giveName(value: String) = update { it.copy(name = value) }
 
     fun finishGuide() = update { it.copy(guideSeen = true) }
+
+    /** 성격은 '함께한 경험'이 정한다(v1): 첫 운전을 가장 많이 함께한 시간대로 말투·표정을 고른다. */
+    private fun personalityFor(lightTrips: Map<Light, Int>): Personality {
+        val light = lightTrips.maxByOrNull { it.value }?.key ?: Light.ofHour(clock.hourOf(System.currentTimeMillis()))
+        return when (light) {
+            Light.DAWN, Light.DAY -> Personality.DODO
+            Light.SUNSET -> Personality.NARUN
+            Light.STAR -> Personality.LUMI
+        }
+    }
 
     /** 위치는 '처음 간 곳/다시 찾은 곳' 판정에만 쓴다. 언제든 바꿀 수 있다. */
     fun setLocationConsent(allowed: Boolean) = update { it.copy(locationConsent = allowed) }
@@ -153,12 +172,41 @@ class CarlingStore(context: Context, val clock: GameClock) {
     /** 주행 한 번을 반영하고 도착 리포트를 남긴다. 너무 짧은 주행은 무시. */
     fun recordTrip(trip: TripResult) {
         val seconds = (trip.endMillis - trip.startMillis) / 1000
-        if (seconds < GrowthRules.MIN_TRIP_SECONDS || !data.hatched) return
+        if (seconds < GrowthRules.MIN_TRIP_SECONDS) return
 
-        val before = data
         val day = clock.dateOf(trip.startMillis).toString()
         val minutes = ((seconds + 30) / 60).toInt().coerceAtLeast(1)
         val light = Light.ofHour(clock.hourOf(trip.startMillis))
+
+        // v1 첫 만남: 알이 깨어나기 전의 '첫 운전'. 성장 엔진을 돌리지 않고,
+        // 트립카드 #001만 만들어 알에 금을 낸다(부화는 사용자가 알을 터치할 때).
+        if (!data.hatched) {
+            if (data.firstTripDone) return // 부화 전 추가 주행은 무시
+            val safety = if (trip.harshEvents == null || trip.harshEvents == 0) 95 else (92 - trip.harshEvents * 4).coerceAtLeast(72)
+            update {
+                it.copy(
+                    firstTripDone = true,
+                    firstTripMinutes = minutes,
+                    firstTripDistanceKm = trip.distanceKm,
+                    firstTripSafety = safety,
+                    firstTripPlaceName = trip.placeName,
+                    // 첫 트립 = 트립카드 #001: 통계·지도에도 반영한다
+                    togetherDays = it.togetherDays + day,
+                    tripCount = 1,
+                    totalMinutes = it.totalMinutes + minutes,
+                    lightMinutes = it.lightMinutes + (light to minutes),
+                    lightTrips = it.lightTrips + (light to 1),
+                    placeCells = trip.placeCell?.let { c -> it.placeCells + c } ?: it.placeCells,
+                    newPlaces = it.newPlaces + if (trip.placeCell != null) 1 else 0,
+                    hasHat = true,
+                    wearingHat = true,
+                    memories = it.memories + MemoryCard(day, "우리의 첫 드라이브", "처음으로 같이 ${minutes}분을 달렸어요. 이 길이 첫 트립카드가 되었어요!"),
+                )
+            }
+            return
+        }
+
+        val before = data
 
         val newDay = day !in before.togetherDays
         val sameRewardDay = before.rewardDate == day
