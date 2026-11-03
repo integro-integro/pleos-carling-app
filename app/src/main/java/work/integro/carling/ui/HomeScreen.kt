@@ -42,6 +42,7 @@ import work.integro.carling.BuildConfig
 import work.integro.carling.data.CarlingData
 import work.integro.carling.data.CarlingStore
 import work.integro.carling.data.Personality
+import work.integro.carling.data.recentDestinations
 import work.integro.carling.game.DevSimulator
 import work.integro.carling.game.GrowthRules
 import work.integro.carling.game.Light
@@ -204,7 +205,7 @@ fun HomeScreen(
                 )
             }
         }
-        if (showMap) ExampleMapScreen(onClose = { showMap = false })
+        if (showMap) ExampleMapScreen(data.mapRoutes, onClose = { showMap = false })
         if (showFoods) {
             FoodsDialog(data, onEat = { store.eatFood(it) }, onClose = { showFoods = false })
         }
@@ -221,6 +222,12 @@ fun HomeScreen(
         }
         if (showScenes) ScenePickerDialog(data.scene, onSelect = store::setScene, onClose = { showScenes = false })
         if (showTutorial) TutorialDialog(onClose = { showTutorial = false })
+        if (data.pendingMapNotice && noDialog && !growing) {
+            MapNotice(
+                onOpen = { store.dismissMapNotice(); showMap = true },
+                onDone = store::dismissMapNotice,
+            )
+        }
         if (growthNotice) {
             key(celebrated, data.reachedStage) {
                 GrowthNotice(data.reachedStage, data.lineage, onDone = store::markStageCelebrated)
@@ -336,7 +343,7 @@ private fun StatusPanel(
             }
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                GameSlot("🃏", "트립카드", enabled = true, badge = data.tripCards.size, modifier = Modifier.weight(1.2f), onClick = onTripCards)
+                GameSlot("🃏", "트립카드", enabled = true, badge = data.tripCards.recentDestinations().size, modifier = Modifier.weight(1.2f), onClick = onTripCards)
                 GameSlot("🗺", "지도", enabled = true, modifier = Modifier.weight(1f), onClick = onMap)
                 val itemsOpen = GrowthRules.itemsUnlocked(data.reachedStage)
                 GameSlot(if (itemsOpen) "🎁" else "🔒", "아이템", enabled = itemsOpen, selected = data.equippedItem != null, modifier = Modifier.weight(1f), onClick = onItems)
@@ -357,10 +364,10 @@ private fun StatusPanel(
 private val tutorialSections: List<Triple<String, String, String>> = listOf(
     Triple("🥚", "첫 만남", "알은 모두에게 하나, 고르지 않아요. 첫 운전을 마치면 알을 네 번 눌러 깨우고, 이름을 지어주면 나만의 카링이 돼요."),
     Triple("🚗", "함께 달리기", "운전을 마칠 때마다 트립카드 한 장이 생겨요. 거리가 아니라 '함께한 횟수'로 자라요."),
-    Triple("🃏", "우리의 트립카드", "카드를 누르면 그 트립의 상세가 나와요. 마음에 드는 트립은 저장하고, '저장한 트립'에서 모아 볼 수 있어요."),
+    Triple("🃏", "우리의 트립카드", "트립은 자동으로 쌓여요. 목적지별 최근 20곳을 보여주고, 같은 곳을 다시 가면 맨 위로 올라와요. 모든 트립은 Drive Log에 남아요."),
     Triple("⚡", "성장 에너지 (XP)", "트립·안전운전·연료 보충·교감으로 하루 최대 50. 180일 동안 성장 6번 + 진화 3번을 거쳐요."),
     Triple("⭐", "지도 포인트 (MP)", "트립카드를 저장하면 받아요. 새 길 +3, 익숙한 길 +1 (운행일마다 2장까지). 저장은 그보다 많이 해도 돼요."),
-    Triple("🗺", "지도", "지금 지도는 예시 화면이에요. 지역 버튼이나 +, −로 움직여 볼 수 있고, 내 트립 경로는 아직 표시되지 않아요."),
+    Triple("🗺", "지도", "새로운 목적지나 길을 달리면 알림과 함께 지도에 켜져요. 출발지와 도착지를 이은 선이고, 바탕 지도는 예시 그림이에요. 위치 사용이 켜져 있어야 해요."),
     Triple("🌤", "날씨 인사", "날짜가 바뀐 뒤 첫 운전 때 말을 걸어요. 오전에는 오늘 예보를, 오후에는 지금 날씨를 알려줘요. 위치 사용이 켜져 있어야 해요."),
     Triple("🖼", "배경", "알이 깨어나면 도시·바닷가 해안·맑은 하늘·고요한 숲 중에서 고를 수 있어요. 낮과 밤은 차량 시계에 맞춰 저절로 바뀌어요."),
     Triple("🎁", "아이템", "성장 1이 되면 열려요. 선글라스·목걸이·신발 등 10가지 중 하나를 골라 카링을 꾸며 보세요."),
@@ -483,6 +490,7 @@ private fun DevPanel(store: CarlingStore, vehicle: VehicleState, modifier: Modif
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(onClick = { store.devResetGreeting(9) }) { Text("오전 인사 준비") }
                 OutlinedButton(onClick = { store.devResetGreeting(15) }) { Text("오후 인사 준비") }
+                OutlinedButton(onClick = simulator::driveToNextSample) { Text("새 길 주행") }
             }
         }
     }

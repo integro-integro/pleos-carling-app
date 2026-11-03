@@ -1,6 +1,10 @@
 package work.integro.carling.game
 
 import org.junit.Assert.assertEquals
+import work.integro.carling.data.MapRoute
+import work.integro.carling.data.TripCard
+import work.integro.carling.data.afterTrip
+import work.integro.carling.data.recentDestinations
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -119,6 +123,51 @@ class GrowthRulesTest {
     fun weatherLocationIsCoarse() {
         assertEquals(37.6, WeatherRules.coarse(37.5665), 1e-9)
         assertEquals(127.0, WeatherRules.coarse(126.978), 1e-9)
+    }
+
+    private fun card(number: Int, cell: String?) = TripCard(
+        number = number, date = "2026-11-03", startMillis = 0L, minutes = 10, distanceKm = null,
+        light = Light.DAY, safety = null, placeName = null, newPlace = null, dayNumber = 1, placeCell = cell,
+    )
+
+    @Test
+    fun revisitedDestinationMovesToTop() {
+        val recent = listOf(card(1, "home"), card(2, "cafe"), card(3, "home")).recentDestinations()
+        assertEquals(listOf(3, 2), recent.map { it.card.number })
+        assertEquals(listOf(2, 1), recent.map { it.visits })
+    }
+
+    @Test
+    fun keepsOnlyRecentTwentyDestinations() {
+        val cards = (1..25).map { card(it, "place$it") }
+        val recent = cards.recentDestinations()
+        assertEquals(20, recent.size)
+        assertEquals(25, recent.first().card.number)
+        assertEquals(6, recent.last().card.number)
+    }
+
+    @Test
+    fun tripsWithoutLocationAreNotGrouped() {
+        assertEquals(2, listOf(card(1, null), card(2, null)).recentDestinations().size)
+    }
+
+    @Test
+    fun newDestinationOrRouteLightsTheMap() {
+        val first = emptyList<MapRoute>().afterTrip(37.5, 127.0, 37.6, 127.1, newDestination = true, date = "d")
+        assertEquals(true, first.lit)
+        assertEquals(1, first.routes.size)
+        // 같은 길을 반대로 달려도 새 길이 아니다
+        val back = first.routes.afterTrip(37.6, 127.1, 37.5, 127.0, newDestination = false, date = "d")
+        assertEquals(false, back.lit)
+        // 아는 목적지라도 다른 곳에서 출발하면 새 길이다
+        val other = first.routes.afterTrip(37.9, 127.5, 37.6, 127.1, newDestination = false, date = "d")
+        assertEquals(true, other.newRoute)
+        assertEquals(2, other.routes.size)
+        // 위치를 모르면 지도에 아무 일도 없다
+        assertEquals(false, first.routes.afterTrip(null, null, null, null, newDestination = false, date = "d").lit)
+        // 제자리 트립은 새 목적지일 때 점만 찍는다
+        val still = emptyList<MapRoute>().afterTrip(37.5, 127.0, 37.5, 127.0, newDestination = true, date = "d")
+        assertEquals(null, still.routes.single().fromLat)
     }
 
     @Test

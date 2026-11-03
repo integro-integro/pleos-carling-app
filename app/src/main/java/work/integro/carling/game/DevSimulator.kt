@@ -2,12 +2,22 @@ package work.integro.carling.game
 
 import work.integro.carling.data.CarlingStore
 import work.integro.carling.data.TripResult
+import work.integro.carling.navi.NaviPlaces
 import java.time.ZoneId
 
 /**
  * 개발·데모용: 하루를 건너뛰며 '계열에 맞는 하루'(트립 2회 + 교감 + 충전 + 기억 저장)를
  * 기록해 XP·MP·단계를 빠르게 쌓는다. 출시 빌드에서는 숨긴다.
  */
+private val SAMPLE_PLACES = listOf(
+    Triple("서울숲", 37.544, 127.037),
+    Triple("코엑스", 37.512, 127.059),
+    Triple("두물머리", 37.532, 127.319),
+    Triple("강릉 경포대", 37.795, 128.897),
+    Triple("대구 수성못", 35.828, 128.617),
+    Triple("해운대", 35.158, 129.160),
+)
+
 class DevSimulator(private val store: CarlingStore) {
 
     private val clock get() = store.clock
@@ -25,6 +35,29 @@ class DevSimulator(private val store: CarlingStore) {
             simulateOneDay(lineage)
             grantPendingEvolution()
         }
+    }
+
+    /** 시연용: 다음 지역으로 실제처럼 한 번 달린다. 새 길 알림과 지도 표시를 볼 수 있다. */
+    fun driveToNextSample() {
+        val index = store.data.mapRoutes.size
+        val (name, lat, lng) = SAMPLE_PLACES[index % SAMPLE_PLACES.size]
+        val (_, startLat, startLng) = SAMPLE_PLACES[(index + SAMPLE_PLACES.size - 1) % SAMPLE_PLACES.size]
+        val end = clock.now()
+        store.recordTrip(
+            TripResult(
+                startMillis = end - 25 * 60 * 1000,
+                endMillis = end,
+                distanceKm = 18f,
+                harshEvents = 0,
+                placeCell = NaviPlaces.cellOf(lat, lng),
+                placeName = name,
+                region = Region.of(lat, lng),
+                lat = lat,
+                lng = lng,
+                startLat = startLat,
+                startLng = startLng,
+            ),
+        )
     }
 
     private fun simulateOneDay(lineage: Lineage) {

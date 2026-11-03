@@ -61,17 +61,20 @@ class TripTracker(
         }
         speed.beginTrip()
         store.beginTrip(store.clock.now(), vehicle.odometerKm())
-        if (store.takeDailyGreeting()) {
-            scope.launch { greetWithWeather() }
-        } else {
-            store.data.personality?.let { say(it.drivingLine) }
+        val greet = store.takeDailyGreeting()
+        if (!greet) store.data.personality?.let { say(it.drivingLine) }
+        // 위치 요청은 한 번에 하나만 처리되므로 출발지와 날씨가 같은 좌표를 함께 쓴다
+        scope.launch {
+            val start = if (store.usesLocation) places.currentCoordinates() else null
+            start?.let { (lat, lng) -> store.setTripStart(lat, lng) }
+            if (greet) greetWithWeather(start)
         }
         Log.i(TAG, "주행 시작")
     }
 
     /** 날짜가 바뀐 뒤 첫 운전의 인사. 오전에는 오늘 예보, 오후에는 지금 날씨를 말한다. */
-    private suspend fun greetWithWeather() {
-        val coordinates = if (store.usesWeather) places.currentCoordinates() else null
+    private suspend fun greetWithWeather(start: Pair<Double, Double>?) {
+        val coordinates = start.takeIf { store.usesWeather }
         val report = coordinates?.let { (lat, lng) -> weather.fetch(lat, lng) }
         if (!vehicle.state.value.isDriving) return
         val hour = store.devGreetingHour ?: store.clock.hourOf(store.clock.now())
@@ -99,6 +102,10 @@ class TripTracker(
                 placeCell = place?.cell,
                 placeName = place?.name,
                 region = place?.region,
+                lat = place?.lat,
+                lng = place?.lng,
+                startLat = trip.startLat,
+                startLng = trip.startLng,
             ),
         )
         speed.endTrip()

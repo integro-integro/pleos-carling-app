@@ -16,7 +16,7 @@ import kotlin.math.floor
 private const val TAG = "NaviPlaces"
 
 /** 주행이 끝난 곳. 정밀 좌표는 밖으로 내보내지 않고 격자 해시만 남긴다. */
-data class Place(val cell: String, val name: String?, val region: Region? = null)
+data class Place(val cell: String, val name: String?, val region: Region? = null, val lat: Double? = null, val lng: Double? = null)
 
 /**
  * '처음 간 곳 / 다시 찾은 곳' 판정용 위치.
@@ -64,7 +64,7 @@ class NaviPlaces(context: Context) {
         val info = locationInfo() ?: return null
         val name = lastArrivedName ?: info.address.takeIf { it.isNotBlank() }
         lastArrivedName = null
-        return Place(cellOf(info.latitude, info.longitude), name, Region.of(info.latitude, info.longitude))
+        return Place(cellOf(info.latitude, info.longitude), name, Region.of(info.latitude, info.longitude), info.latitude, info.longitude)
     }
 
     /** 지금 좌표(위도, 경도). 날씨를 볼 때만 쓰고 저장하지 않는다. */

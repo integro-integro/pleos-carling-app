@@ -252,8 +252,8 @@ fun LocationConsentScreen(personality: Personality, onAnswer: (Boolean) -> Unit,
     Spacer(Modifier.height(24.dp))
     PanelBox(Modifier.widthIn(max = 820.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            ConsentLine("어디에 쓰나요", "주행이 끝날 때 '처음 간 곳 / 다시 찾은 곳'과 특산물 지역을 판정하고, 하루 첫 운전 때 날씨를 확인해요.")
-            ConsentLine("무엇을 남기나요", "정확한 좌표는 저장하지 않아요. 약 200m 구역을 알아볼 수 없게 바꾼 표시만 기기에 남겨요.")
+            ConsentLine("어디에 쓰나요", "새로운 길을 지도에 켜고, 특산물 지역을 판정하고, 하루 첫 운전 때 날씨를 확인해요.")
+            ConsentLine("무엇을 남기나요", "정확한 좌표는 저장하지 않아요. 지도에 그릴 약 1km 단위 위치와, 약 200m 구역을 알아볼 수 없게 바꾼 표시만 이 차에 남겨요.")
             ConsentLine("어디로 보내나요", "기록은 이 차 안에만 있어요. 날씨를 볼 때만 약 10km 단위로 어림한 위치를 날씨 서비스(Open-Meteo)로 보내요.")
             ConsentLine("언제든 바꿀 수 있어요", "홈 화면에서 끄면 그때부터 위치를 쓰지 않아요.")
             ConsentLine("허용하지 않으면", "카링은 똑같이 잘 자라요. 다만 새 길 판정과 특산물, 날씨 인사는 받을 수 없어요.")

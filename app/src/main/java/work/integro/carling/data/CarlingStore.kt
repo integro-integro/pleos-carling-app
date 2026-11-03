@@ -27,6 +27,10 @@ data class TripResult(
     val placeCell: String?,
     val placeName: String?,
     val region: Region? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
+    val startLat: Double? = null,
+    val startLng: Double? = null,
 )
 
 /**
@@ -147,6 +151,12 @@ class CarlingStore(context: Context, val clock: GameClock) {
         update { it.copy(activeTrip = ActiveTrip(startMillis, startOdometerKm)) }
 
     fun clearActiveTrip() = update { it.copy(activeTrip = null) }
+
+    fun setTripStart(lat: Double, lng: Double) = update {
+        it.copy(activeTrip = it.activeTrip?.copy(startLat = lat, startLng = lng))
+    }
+
+    fun dismissMapNotice() = update { it.copy(pendingMapNotice = false) }
 
     // ---- 날짜 롤오버 / 단계 계산 ----
 
@@ -323,7 +333,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
 
     /** 지금 저장하면 받을 MP. */
     fun saveMpFor(card: TripCard): Int = GrowthRules.saveMp(
-        newPlace = card.newPlace,
+        newPlace = card.newPlace == true || card.newRoute,
         alreadyRewarded = card.mpGained > 0,
         rewardedOnDay = data.tripCards.count { it.date == card.date && it.mpGained > 0 },
     )
@@ -389,6 +399,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
                     placeCells = trip.placeCell?.let { c -> it.placeCells + c } ?: it.placeCells,
                     newPlaces = it.newPlaces + if (trip.placeCell != null) 1 else 0,
                     lineageScores = mergeScores(it.lineageScores, GrowthRules.scoreTrip(trip.distanceKm, trip.harshEvents, trip.placeCell != null)),
+                    mapRoutes = it.mapRoutes.afterTrip(trip.startLat, trip.startLng, trip.lat, trip.lng, trip.placeCell != null, day).routes,
                     tripCards = it.tripCards + TripCard(
                         number = 1,
                         date = day,
@@ -400,6 +411,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
                         placeName = trip.placeName,
                         newPlace = true,
                         dayNumber = 1,
+                        placeCell = trip.placeCell,
                         highlights = listOfNotNull(trip.region?.let { r -> "${r.foodName}을 받았어요" }, "우리의 첫 드라이브"),
                     ),
                 )
@@ -437,6 +449,8 @@ class CarlingStore(context: Context, val clock: GameClock) {
         val highlights = mutableListOf<String>()
         val giftFood = trip.region?.takeIf { before.foodGiftDates[it] != day }
         giftFood?.let { highlights += "${it.foodName}을 받았어요" }
+        val mapChange = before.mapRoutes.afterTrip(trip.startLat, trip.startLng, trip.lat, trip.lng, newPlace == true, day)
+        if (mapChange.lit) highlights += "새로운 길이 지도에 켜졌어요"
         if (newPlace == true) highlights += "처음 보는 풍경"
         cardGotLabel?.let { highlights += "$it 획득" }
 
@@ -470,6 +484,8 @@ class CarlingStore(context: Context, val clock: GameClock) {
         update {
             withRegionGift(next, giftFood, day).copy(
                 pendingCard = number,
+                mapRoutes = mapChange.routes,
+                pendingMapNotice = next.pendingMapNotice || mapChange.lit,
                 tripCards = before.tripCards + TripCard(
                     number = number,
                     date = day,
@@ -481,6 +497,8 @@ class CarlingStore(context: Context, val clock: GameClock) {
                     placeName = trip.placeName,
                     newPlace = newPlace,
                     dayNumber = dayNum,
+                    placeCell = trip.placeCell,
+                    newRoute = mapChange.newRoute,
                     driveXpToday = GrowthRules.driveXp(next.tripsToday, next.safeTripsToday),
                     highlights = highlights,
                 ),

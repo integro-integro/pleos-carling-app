@@ -1,23 +1,29 @@
 package work.integro.carling.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +38,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -40,10 +47,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import work.integro.carling.data.MapRoute
 
 /*
  * 네이버 지도와 비슷한 느낌의 예시 지도. 지도 SDK 없이 Canvas로 그린다.
- * 해안선·도로는 위경도를 따라 단순화한 그림이라 내비게이션에 쓸 수 없고, 내 트립 경로도 아직 표시하지 않는다.
+ * 해안선·도로는 위경도를 따라 단순화한 그림이라 내비게이션에 쓸 수 없다.
+ * 내가 달린 길은 출발지와 도착지를 잇는 선으로 그린다. 실제 달린 도로를 따라가지는 않는다.
  */
 
 private val Sea = Color(0xFFB4D9F2)
@@ -55,6 +65,8 @@ private val CityRoad = Color(0xFFFFFFFF)
 private val CityBlock = Color(0xFFECE8DE)
 private val PinGreen = Color(0xFF03C75A)
 private val MapInk = Color(0xFF26303D)
+private val MyRoad = Color(0xFF2F6BFF)
+private const val NOTICE_MS = 4_500L
 
 private const val LNG_SCALE = 0.81f // 위도 36° 부근에서 경도 1°의 상대 길이
 private const val MIN_ZOOM = 0.8f
@@ -144,7 +156,7 @@ private class MapView(val center: GeoPoint, val pxPerDegree: Float, val width: F
 
 /** 지도 화면. 예시 데이터임을 화면에 밝힌다. */
 @Composable
-fun ExampleMapScreen(onClose: () -> Unit) {
+fun ExampleMapScreen(routes: List<MapRoute>, onClose: () -> Unit) {
     var centerLng by remember { mutableFloatStateOf(HOME_LNG) }
     var centerLat by remember { mutableFloatStateOf(HOME_LAT) }
     var zoom by remember { mutableFloatStateOf(1f) }
@@ -175,6 +187,7 @@ fun ExampleMapScreen(onClose: () -> Unit) {
         ) {
             val view = MapView(GeoPoint(centerLng, centerLat), pxPerDegree(size.height, zoom), size.width, size.height)
             drawBaseMap(view, zoom)
+            drawMyRoutes(view, routes)
             Places.forEach { drawPlace(view, it, zoom, it.name == selected, measurer) }
         }
 
@@ -221,6 +234,18 @@ fun ExampleMapScreen(onClose: () -> Unit) {
         }
 
         Text(
+            if (routes.isEmpty()) "아직 켜진 길이 없어요" else "내가 밝힌 길 ${routes.size}개",
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+                .background(MyRoad, RoundedCornerShape(20.dp))
+                .padding(horizontal = 18.dp, vertical = 9.dp),
+        )
+
+        Text(
             "예시 지도 · 실제 지도 데이터가 아니에요",
             fontSize = 16.sp,
             color = MapInk,
@@ -245,6 +270,61 @@ private fun DrawScope.geoPath(view: MapView, points: List<GeoPoint>, closed: Boo
         if (i == 0) moveTo(s.x, s.y) else lineTo(s.x, s.y)
     }
     if (closed) close()
+}
+
+/** 내가 밝힌 길. 나중에 켜진 길일수록 진하다. */
+private fun DrawScope.drawMyRoutes(view: MapView, routes: List<MapRoute>) {
+    routes.forEachIndexed { i, route ->
+        val alpha = 0.55f + 0.45f * (i + 1f) / routes.size
+        val to = view.toScreen(GeoPoint(route.toLng.toFloat(), route.toLat.toFloat()))
+        val fromLat = route.fromLat
+        val fromLng = route.fromLng
+        if (fromLat != null && fromLng != null) {
+            val from = view.toScreen(GeoPoint(fromLng.toFloat(), fromLat.toFloat()))
+            drawLine(Color.White.copy(alpha = 0.9f * alpha), from, to, 11f, cap = StrokeCap.Round)
+            drawLine(MyRoad.copy(alpha = alpha), from, to, 6.5f, cap = StrokeCap.Round)
+            drawCircle(MyRoad.copy(alpha = alpha), 7f, from)
+        }
+        drawCircle(MyRoad.copy(alpha = 0.25f * alpha), 22f, to)
+        drawCircle(Color.White, 11f, to)
+        drawCircle(MyRoad.copy(alpha = alpha), 8f, to)
+    }
+}
+
+/** 새 길 알림. 누르면 지도를 연다. */
+@Composable
+fun MapNotice(onOpen: () -> Unit, onDone: () -> Unit) {
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        appear.animateTo(1f, tween(260))
+        delay(NOTICE_MS)
+        appear.animateTo(0f, tween(220))
+        onDone()
+    }
+    Box(Modifier.fillMaxSize().padding(top = 28.dp), contentAlignment = Alignment.TopCenter) {
+        Surface(
+            onClick = onOpen,
+            shape = RoundedCornerShape(28.dp),
+            color = Night,
+            modifier = Modifier
+                .graphicsLayer {
+                    alpha = appear.value
+                    translationY = (appear.value - 1f) * 40f * density
+                }
+                .border(2.dp, MyRoad, RoundedCornerShape(28.dp)),
+        ) {
+            Row(Modifier.padding(horizontal = 28.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("🗺", fontSize = 32.sp)
+                Spacer(Modifier.width(14.dp))
+                Column {
+                    Text("새로운 길 발견!", fontSize = 17.sp, color = Gold, fontWeight = FontWeight.Bold)
+                    Text("새로운 길이 지도에 반영됐어요", fontSize = 24.sp, color = Ink, fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.width(20.dp))
+                Text("지도 보기 ›", fontSize = 20.sp, color = Gold)
+            }
+        }
+    }
 }
 
 private fun DrawScope.drawBaseMap(view: MapView, zoom: Float) {
