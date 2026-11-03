@@ -9,6 +9,7 @@ import work.integro.carling.trip.TripTracker
 import work.integro.carling.vehicle.SpeedMonitor
 import work.integro.carling.vehicle.VehicleSignals
 import work.integro.carling.voice.Voice
+import work.integro.carling.weather.WeatherClient
 
 /**
  * 차량 신호와 주행 기록을 Activity가 아닌 앱 전체 범위에 둔다.
@@ -41,6 +42,6 @@ class CarlingApplication : Application() {
 
         vehicle.start()
         places.start()
-        TripTracker(scope, vehicle, speed, places, store, voice).start()
+        TripTracker(scope, vehicle, speed, places, store, voice, WeatherClient()).start()
     }
 }

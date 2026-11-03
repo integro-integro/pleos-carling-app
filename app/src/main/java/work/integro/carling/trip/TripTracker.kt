@@ -2,6 +2,7 @@ package work.integro.carling.trip
 
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -10,9 +11,14 @@ import work.integro.carling.data.TripResult
 import work.integro.carling.navi.NaviPlaces
 import work.integro.carling.vehicle.SpeedMonitor
 import work.integro.carling.vehicle.VehicleSignals
+import work.integro.carling.game.WeatherRules
 import work.integro.carling.voice.Voice
+import work.integro.carling.weather.WeatherClient
 
 private const val TAG = "TripTracker"
+
+/** 주행 위젯에 날씨 인사를 보여주는 시간. 운전에 방해되지 않게 잠깐만 띄운다. */
+private const val GREETING_SHOWN_MS = 12_000L
 
 /**
  * 기어 P→주행→P 를 '함께한 주행 한 번'으로 묶어 기록한다.
@@ -27,6 +33,7 @@ class TripTracker(
     private val places: NaviPlaces,
     private val store: CarlingStore,
     private val voice: Voice,
+    private val weather: WeatherClient,
 ) {
     fun start() {
         scope.launch {
@@ -54,11 +61,30 @@ class TripTracker(
         }
         speed.beginTrip()
         store.beginTrip(store.clock.now(), vehicle.odometerKm())
-        store.data.personality?.let { say(it.drivingLine) }
+        if (store.takeDailyGreeting()) {
+            scope.launch { greetWithWeather() }
+        } else {
+            store.data.personality?.let { say(it.drivingLine) }
+        }
         Log.i(TAG, "주행 시작")
     }
 
+    /** 날짜가 바뀐 뒤 첫 운전의 인사. 오전에는 오늘 예보, 오후에는 지금 날씨를 말한다. */
+    private suspend fun greetWithWeather() {
+        val coordinates = if (store.usesWeather) places.currentCoordinates() else null
+        val report = coordinates?.let { (lat, lng) -> weather.fetch(lat, lng) }
+        if (!vehicle.state.value.isDriving) return
+        val hour = store.devGreetingHour ?: store.clock.hourOf(store.clock.now())
+        val line = WeatherRules.greeting(hour, report)
+        Log.i(TAG, "날씨 인사: hour=$hour report=$report line=$line")
+        store.driveGreeting = line
+        say(line)
+        delay(GREETING_SHOWN_MS)
+        if (store.driveGreeting == line) store.driveGreeting = null
+    }
+
     private suspend fun onDriveEnd() {
+        store.driveGreeting = null
         val trip = store.data.activeTrip ?: return
         val end = store.clock.now()
         val distance = vehicle.odometerKm()?.let { now -> trip.startOdometerKm?.let { (now - it).coerceAtLeast(0f) } }

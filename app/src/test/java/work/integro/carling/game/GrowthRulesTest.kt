@@ -83,6 +83,45 @@ class GrowthRulesTest {
     }
 
     @Test
+    fun skyFromWeatherCode() {
+        assertEquals(Sky.CLEAR, WeatherRules.skyOf(1))
+        assertEquals(Sky.CLOUDY, WeatherRules.skyOf(3))
+        assertEquals(Sky.FOG, WeatherRules.skyOf(45))
+        assertEquals(Sky.RAIN, WeatherRules.skyOf(63))
+        assertEquals(Sky.RAIN, WeatherRules.skyOf(95))
+        assertEquals(Sky.SNOW, WeatherRules.skyOf(73))
+    }
+
+    @Test
+    fun parsesForecastAndRainChance() {
+        fun body(today: Int, chance: Int, now: Int) =
+            """{"current":{"weather_code":$now},"daily":{"weather_code":[$today],"precipitation_probability_max":[$chance]}}"""
+        assertEquals(WeatherReport(Sky.CLEAR, Sky.CLOUDY), WeatherRules.parse(body(1, 10, 3)))
+        // 예보가 흐림이어도 비 올 확률이 높으면 비 소식으로 말한다
+        assertEquals(WeatherReport(Sky.RAIN, Sky.CLEAR), WeatherRules.parse(body(3, 60, 0)))
+        // 눈 예보는 확률 때문에 비로 바뀌지 않는다
+        assertEquals(WeatherReport(Sky.SNOW, Sky.SNOW), WeatherRules.parse(body(73, 90, 71)))
+        assertNull(WeatherRules.parse("not json"))
+    }
+
+    @Test
+    fun morningSaysForecastAndAfternoonSaysCurrentWeather() {
+        val report = WeatherReport(forecast = Sky.RAIN, now = Sky.CLEAR)
+        assertEquals("오늘 비 소식이 있어요. 조심히 운전해요.", WeatherRules.greeting(11, report))
+        assertEquals("지금은 맑아요. 오늘도 안전운전해요!", WeatherRules.greeting(12, report))
+        assertEquals("오늘은 흐리대요. 제가 즐겁게 해줄게요!", WeatherRules.greeting(8, WeatherReport(Sky.CLOUDY, Sky.CLOUDY)))
+        assertEquals("오늘은 화창해요! 운전을 즐겨 봐요.", WeatherRules.greeting(8, WeatherReport(Sky.CLEAR, Sky.CLEAR)))
+        // 날씨를 모르면 날씨 이야기를 지어내지 않는다
+        assertEquals("오늘도 함께 안전운전해요!", WeatherRules.greeting(8, null))
+    }
+
+    @Test
+    fun weatherLocationIsCoarse() {
+        assertEquals(37.6, WeatherRules.coarse(37.5665), 1e-9)
+        assertEquals(127.0, WeatherRules.coarse(126.978), 1e-9)
+    }
+
+    @Test
     fun itemsOpenAtFirstGrowth() {
         assertEquals(false, GrowthRules.itemsUnlocked(0))
         assertEquals(true, GrowthRules.itemsUnlocked(1))

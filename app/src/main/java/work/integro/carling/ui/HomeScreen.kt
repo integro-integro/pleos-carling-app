@@ -361,6 +361,7 @@ private val tutorialSections: List<Triple<String, String, String>> = listOf(
     Triple("⚡", "성장 에너지 (XP)", "트립·안전운전·연료 보충·교감으로 하루 최대 50. 180일 동안 성장 6번 + 진화 3번을 거쳐요."),
     Triple("⭐", "지도 포인트 (MP)", "트립카드를 저장하면 받아요. 새 길 +3, 익숙한 길 +1 (운행일마다 2장까지). 저장은 그보다 많이 해도 돼요."),
     Triple("🗺", "지도", "지금 지도는 예시 화면이에요. 지역 버튼이나 +, −로 움직여 볼 수 있고, 내 트립 경로는 아직 표시되지 않아요."),
+    Triple("🌤", "날씨 인사", "날짜가 바뀐 뒤 첫 운전 때 말을 걸어요. 오전에는 오늘 예보를, 오후에는 지금 날씨를 알려줘요. 위치 사용이 켜져 있어야 해요."),
     Triple("🖼", "배경", "알이 깨어나면 도시·바닷가 해안·맑은 하늘·고요한 숲 중에서 고를 수 있어요. 낮과 밤은 차량 시계에 맞춰 저절로 바뀌어요."),
     Triple("🎁", "아이템", "성장 1이 되면 열려요. 선글라스·목걸이·신발 등 10가지 중 하나를 골라 카링을 꾸며 보세요."),
     Triple("🍊", "지역 특산물", "제주도·강원도·부산·대구·전주를 방문하면 특산물을 받아요(지역마다 하루 1개, 위치 사용 필요). 배고플 때 먹이면 경험치가 더 많이 올라요."),
@@ -478,6 +479,10 @@ private fun DevPanel(store: CarlingStore, vehicle: VehicleState, modifier: Modif
                     OutlinedButton(onClick = { store.devGiveFood(r) }) { Text(r.foodIcon) }
                 }
                 OutlinedButton(onClick = store::devMakeHungry) { Text("배고픔") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(onClick = { store.devResetGreeting(9) }) { Text("오전 인사 준비") }
+                OutlinedButton(onClick = { store.devResetGreeting(15) }) { Text("오후 인사 준비") }
             }
         }
     }

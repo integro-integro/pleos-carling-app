@@ -13,6 +13,8 @@
     <uses-permission android:name="pleos.car.permission.NAVI_ROUTE" />
     <!-- AAOS 차속 (부드러운 운전 칭찬). 런타임 권한 -->
     <uses-permission android:name="android.car.permission.CAR_SPEED" />
+    <!-- 하루 첫 운전의 날씨 인사 -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- 시동(부팅) 때 앱을 깨워 화면을 열지 않아도 주행을 기록 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

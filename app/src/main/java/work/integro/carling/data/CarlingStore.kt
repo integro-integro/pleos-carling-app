@@ -101,9 +101,36 @@ class CarlingStore(context: Context, val clock: GameClock) {
     }
 
     /** 위치는 '처음 간 곳/다시 찾은 곳' 판정에만 쓴다. 언제든 바꿀 수 있다. */
-    fun setLocationConsent(allowed: Boolean) = update { it.copy(locationConsent = allowed) }
+    fun setLocationConsent(allowed: Boolean) = update {
+        it.copy(locationConsent = allowed, locationConsentVersion = CURRENT_LOCATION_CONSENT)
+    }
 
     val usesLocation: Boolean get() = data.locationConsent == true
+
+    /** 날씨 서비스로 어림한 위치를 보내도 되는지. 그 안내를 읽고 동의한 경우에만 된다. */
+    val usesWeather: Boolean get() = usesLocation && !data.needsLocationReconsent
+
+    // ---- 날씨 인사 ----
+
+    /** 주행 위젯에 잠깐 보여줄 인사. 저장하지 않는다. */
+    var driveGreeting by mutableStateOf<String?>(null)
+
+    /** 개발용: 인사에 쓸 시각. null이면 실제 시각을 따른다. */
+    var devGreetingHour by mutableStateOf<Int?>(null)
+
+    /** 날짜가 바뀐 뒤 첫 운전이면 true를 돌려주고 오늘 인사한 것으로 표시한다. 깨어나기 전에는 인사하지 않는다. */
+    fun takeDailyGreeting(): Boolean {
+        val today = clock.today().toString()
+        if (!data.hatched || data.weatherGreetDate == today) return false
+        update { it.copy(weatherGreetDate = today) }
+        return true
+    }
+
+    /** 개발용: 다음 주행에서 인사를 다시 하게 한다. */
+    fun devResetGreeting(hour: Int) {
+        devGreetingHour = hour
+        update { it.copy(weatherGreetDate = null) }
+    }
 
     private fun personalityFor(lightTrips: Map<Light, Int>): Personality {
         val light = lightTrips.maxByOrNull { it.value }?.key ?: Light.ofHour(clock.hourOf(System.currentTimeMillis()))
@@ -497,6 +524,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
                 firstPetDone = true,
                 guideSeen = true,
                 locationConsent = old.locationConsent,
+                locationConsentVersion = old.locationConsentVersion,
                 voiceOn = old.voiceOn,
                 scene = old.scene,
             )

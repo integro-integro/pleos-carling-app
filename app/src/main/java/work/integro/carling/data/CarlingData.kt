@@ -30,6 +30,10 @@ data class CarlingData(
     val usualLight: Light? = null,
     val guideSeen: Boolean = false,
     val locationConsent: Boolean? = null,
+    /** 사용자가 읽고 동의한 위치 안내의 판. 2부터 날씨 서비스 전송이 안내에 들어 있다. */
+    val locationConsentVersion: Int = 0,
+    /** 날씨 인사를 마지막으로 한 날. */
+    val weatherGreetDate: String? = null,
 
     /** 진행 중인 주행. 주행 도중 프로세스가 정리돼도 이어서 기록하기 위해 저장한다. */
     val activeTrip: ActiveTrip? = null,
@@ -112,8 +116,14 @@ data class CarlingData(
     fun stageIndexOn(today: LocalDate): Int =
         GrowthRules.stageIndex(dayNumber(today), totalXp, totalMp, ownedCards, doneQuests)
 
+    /** 위치를 쓰도록 동의했지만 날씨 전송 안내를 아직 보지 못했는지. */
+    val needsLocationReconsent: Boolean
+        get() = locationConsent == true && locationConsentVersion < CURRENT_LOCATION_CONSENT
+
     val stageSpec get() = GrowthRules.STAGES[reachedStage.coerceIn(0, GrowthRules.MAX_STAGE)]
 }
+
+const val CURRENT_LOCATION_CONSENT = 2
 
 /** 고를 수 있는 배경. 낮과 밤은 시계를 따른다. */
 @Serializable

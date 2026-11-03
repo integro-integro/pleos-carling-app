@@ -61,16 +61,23 @@ class NaviPlaces(context: Context) {
 
     /** 지금 있는 곳. 내비가 없거나 응답이 없으면 null. */
     suspend fun currentPlace(): Place? {
+        val info = locationInfo() ?: return null
+        val name = lastArrivedName ?: info.address.takeIf { it.isNotBlank() }
+        lastArrivedName = null
+        return Place(cellOf(info.latitude, info.longitude), name, Region.of(info.latitude, info.longitude))
+    }
+
+    /** 지금 좌표(위도, 경도). 날씨를 볼 때만 쓰고 저장하지 않는다. */
+    suspend fun currentCoordinates(): Pair<Double, Double>? = locationInfo()?.let { it.latitude to it.longitude }
+
+    private suspend fun locationInfo(): CurrentLocationInfo? {
         if (!ready) return null
         val deferred = CompletableDeferred<CurrentLocationInfo?>()
         pendingLocation = deferred
         runCatching { navi.getCurrentLocationInfo() }.onFailure { deferred.complete(null) }
         val info = withTimeoutOrNull(3_000) { deferred.await() }
         pendingLocation = null
-        if (info == null || (info.latitude == 0.0 && info.longitude == 0.0)) return null
-        val name = lastArrivedName ?: info.address.takeIf { it.isNotBlank() }
-        lastArrivedName = null
-        return Place(cellOf(info.latitude, info.longitude), name, Region.of(info.latitude, info.longitude))
+        return info?.takeUnless { it.latitude == 0.0 && it.longitude == 0.0 }
     }
 
     fun stop() {

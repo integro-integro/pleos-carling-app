@@ -28,7 +28,7 @@ fun CarlingApp(store: CarlingStore, vehicle: VehicleState, onLocationAllowed: ()
     CarlingTheme(store.data.scene, showScene = store.data.hatched, nightnessOverride = store.devNightness) {
         // 주행 중에는 돌보기 화면을 아예 그리지 않는다 (안전 원칙: 주행 중 터치 없음)
         if (vehicle.isDriving) {
-            DrivingMode(store.data)
+            DrivingMode(store.data, store.driveGreeting)
         } else {
             ParkedMode(store, vehicle, onLocationAllowed)
         }
@@ -59,17 +59,17 @@ private fun ParkedMode(store: CarlingStore, vehicle: VehicleState, onLocationAll
         !data.firstPetDone -> FirstPetScreen(name, personality, onPet = store::completeFirstPet, onBack = store::onboardingBack)
         // 5 · 지도의 첫 불빛, 내일의 약속
         !data.guideSeen -> FirstMapScreen(name, personality, onDone = store::finishGuide, onBack = store::onboardingBack)
-        data.locationConsent == null -> LocationConsentScreen(personality, onAnswer = { allowed ->
+        data.locationConsent == null || data.needsLocationReconsent -> LocationConsentScreen(personality, onAnswer = { allowed ->
             store.setLocationConsent(allowed)
             if (allowed) onLocationAllowed()
-        }, onBack = store::onboardingBack)
+        }, onBack = if (data.locationConsent == null) store::onboardingBack else null)
         else -> HomeScreen(store, data, personality, name, vehicle, onLocationAllowed)
     }
 }
 
 /** 주행 중: 구석의 작은 위젯과 한 줄만. 입력은 받지 않는다. */
 @Composable
-private fun DrivingMode(data: CarlingData) {
+private fun DrivingMode(data: CarlingData, greeting: String?) {
     val personality = data.personality ?: Personality.LUMI
     Box(Modifier.fillMaxSize()) {
         Row(
@@ -94,7 +94,7 @@ private fun DrivingMode(data: CarlingData) {
             }
             Spacer(Modifier.width(12.dp))
             Text(
-                if (!data.hatched) "(알 속에서 작은 두근거림이 느껴진다…)" else personality.drivingLine,
+                if (!data.hatched) "(알 속에서 작은 두근거림이 느껴진다…)" else greeting ?: personality.drivingLine,
                 fontSize = 28.sp,
                 color = Ink,
             )
