@@ -88,6 +88,7 @@ class CarlingMotion internal constructor(private val scope: CoroutineScope) {
     var rotation by mutableFloatStateOf(0f)
     var squash by mutableFloatStateOf(1f)
     var facingLeft by mutableStateOf(false)
+    var napping by mutableStateOf(false)
 
     /** 머리 위에 잠깐 떠오르는 감정 표시(♥, Zzz 등)와 말풍선. */
     var emote by mutableStateOf<String?>(null)
@@ -248,9 +249,14 @@ class CarlingMotion internal constructor(private val scope: CoroutineScope) {
 
     private suspend fun nap() {
         show("💤", null)
-        squashTo(0.9f, 600)
-        delay(Random.nextLong(3_000, 6_000))
-        squashTo(1f, 400)
+        napping = true
+        try {
+            squashTo(0.9f, 600)
+            delay(Random.nextLong(3_000, 6_000))
+            squashTo(1f, 400)
+        } finally {
+            napping = false
+        }
         emote = null
     }
 
@@ -290,7 +296,7 @@ fun Wandering(
     tapLines: List<String>,
     onPetted: () -> Unit,
     modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
+    content: @Composable (napping: Boolean) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val motion = remember { CarlingMotion(scope) }
@@ -328,7 +334,7 @@ fun Wandering(
                         indication = null,
                         enabled = enabled,
                     ) { motion.onTap(tapLines, onPetted) },
-            ) { content() }
+            ) { content(motion.napping) }
 
             FloatingEmote(motion.emote, motion.emoteKey, Modifier.align(Alignment.TopCenter))
             motion.bubble?.let { line ->

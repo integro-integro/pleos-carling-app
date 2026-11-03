@@ -84,12 +84,11 @@ private fun DrivingMode(data: CarlingData) {
             } else {
                 CarlingDrawing(
                     size = 120.dp,
-                    stage = data.sizeStage,
+                    stageIndex = data.reachedStage,
                     glow = data.glowColor(),
                     hat = data.wearingHat,
                     mood = personality,
                     lineage = data.lineage,
-                    evoTier = data.evoTier,
                 )
             }
             Spacer(Modifier.width(12.dp))

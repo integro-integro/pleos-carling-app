@@ -6,6 +6,9 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -21,9 +24,13 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import work.integro.carling.data.Personality
+import work.integro.carling.game.GrowthRules
 import work.integro.carling.game.Lineage
 import work.integro.carling.game.Stage
 import work.integro.carling.game.Path as GrowthPath
@@ -49,52 +56,65 @@ private val HeartGreen = Color(0xFF34E0A4)
 private val HeartDeep = Color(0xFF17B583)
 private val HeartLight = Color(0xFFB7FFE6)
 
-/** 서비스 시각화 v1 의 알: 유리처럼 빛나는 하늘색 젤리 알 안에서 초록 심장이 뛴다. */
+/** 일러스트 한 장에 숨쉬기와 심장 박동, 그림자, 모자를 입혀 그린다. */
 @Composable
-fun EggDrawing(size: Dp, modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "egg")
-    val wobble by transition.animateFloat(-4f, 4f, infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "wobble")
-    val beat by transition.animateFloat(0.86f, 1.14f, infiniteRepeatable(tween(820), RepeatMode.Reverse), label = "beat")
-    val twinkle by transition.animateFloat(0.4f, 1f, infiniteRepeatable(tween(1200), RepeatMode.Reverse), label = "twinkle")
-    Canvas(modifier.size(size)) {
-        val s = this.size.minDimension
-        val c = center
-        drawCircle(Brush.radialGradient(listOf(BaseGlow.copy(alpha = 0.5f), Color.Transparent), c, s * 0.5f), s * 0.5f, c)
-        rotate(wobble, pivot = c + Offset(0f, s * 0.36f)) {
-            val w = s * 0.58f
-            val h = s * 0.76f
-            val topLeft = c - Offset(w / 2, h / 2)
-            // 바닥 그림자
-            drawOval(Color(0x33000000), c + Offset(-w * 0.42f, h * 0.44f), Size(w * 0.84f, h * 0.12f))
-            // 젤리 알 본체 (반투명)
-            drawOval(
-                Brush.radialGradient(
-                    listOf(Color.White, lerp(Color.White, BaseGlow, 0.35f), lerp(Color.White, BaseGlow, 0.8f), lerp(BaseGlow, Color(0xFF4FA6EE), 0.4f)),
-                    center = c - Offset(w * 0.16f, h * 0.22f),
-                    radius = h * 0.78f,
-                ),
-                topLeft,
-                Size(w, h),
-                alpha = 0.9f,
-            )
-            drawOval(BaseGlow.copy(alpha = 0.5f), topLeft, Size(w, h), style = Stroke(s * 0.012f))
-            // 안에서 뛰는 초록 심장
-            val heartC = c + Offset(0f, h * 0.1f)
-            drawCircle(Brush.radialGradient(listOf(HeartLight.copy(alpha = 0.9f), Color.Transparent), heartC, w * 0.42f * beat), w * 0.42f * beat, heartC)
-            drawHeart(heartC, w * 0.17f * beat)
-            // 유리 하이라이트
-            drawOval(Color.White.copy(alpha = 0.6f), topLeft + Offset(w * 0.18f, h * 0.1f), Size(w * 0.2f, h * 0.3f))
-            drawCircle(Color.White.copy(alpha = 0.75f), w * 0.05f, topLeft + Offset(w * 0.68f, h * 0.2f))
+private fun ArtDrawing(
+    art: CarlingArt,
+    size: Dp,
+    modifier: Modifier,
+    res: Int = art.res,
+    rockDegrees: Float = 0f,
+    hat: Boolean = false,
+    beating: Boolean = true,
+) {
+    val transition = rememberInfiniteTransition(label = "art")
+    val breath by transition.animateFloat(0.985f, 1.015f, infiniteRepeatable(tween(1600), RepeatMode.Reverse), label = "breath")
+    val beat by transition.animateFloat(0.82f, 1.18f, infiniteRepeatable(tween(820), RepeatMode.Reverse), label = "beat")
+    val twinkle by transition.animateFloat(0.3f, 1f, infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "twinkle")
+    val rock by transition.animateFloat(-1f, 1f, infiniteRepeatable(tween(1100), RepeatMode.Reverse), label = "rock")
+    Box(modifier.size(size)) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = art.scale * if (art.mirrored) -1f else 1f
+                    scaleY = art.scale * breath
+                    rotationZ = rock * rockDegrees
+                    transformOrigin = TransformOrigin(0.5f, 0.86f)
+                },
+        ) {
+            art.shadowAt?.let { at ->
+                Canvas(Modifier.fillMaxSize()) {
+                    val s = this.size.minDimension
+                    drawOval(Color(0x38000000), Offset(at.x * s - s * 0.2f, at.y * s - s * 0.03f), Size(s * 0.4f, s * 0.06f))
+                }
+            }
+            Image(painterResource(res), contentDescription = null, modifier = Modifier.fillMaxSize())
+            Canvas(Modifier.fillMaxSize()) {
+                val s = this.size.minDimension
+                if (beating) {
+                    val at = Offset(art.heart.x * s, art.heart.y * s)
+                    val glow = art.heartRadius * s * beat
+                    drawCircle(Brush.radialGradient(listOf(HeartLight.copy(alpha = 0.6f), Color.Transparent), at, glow), glow, at)
+                }
+                val body = art.bodyCenter
+                if (hat && body != null) drawHat(Offset(body.x * s, body.y * s), art.bodyRadius * s)
+                drawSparkles(center, s * 0.42f, Color.White, twinkle)
+            }
         }
-        drawSparkles(c, s * 0.42f, Color.White, twinkle)
     }
 }
 
+/** 서비스 시각화 v1 의 알: 유리처럼 빛나는 하늘색 젤리 알 안에서 초록 심장이 뛴다. */
+@Composable
+fun EggDrawing(size: Dp, modifier: Modifier = Modifier) = ArtDrawing(EggArt, size, modifier, rockDegrees = 4f)
+
 /**
- * 카링 (아기~성장).
- * - stage: 크기
- * - glow: 몸빛(계열·시간대 색) / 진화 전에는 공통 하늘빛
- * - mood: 표정만 (나른=눈웃음, 도도=활짝, 루미=잔잔한 미소)
+ * 카링. 일러스트가 있는 단계는 일러스트로, 아직 없는 계열의 진화 단계는 벡터로 그린다.
+ * - stageIndex: 성장 단계(0=아기 ~ 9=진화 3)
+ * - asleep: 자는 중 — 자는 모습 일러스트가 맞는 단계에서만 바뀐다
+ * - glow: 벡터 그림의 몸빛(계열 색)
+ * - mood: 벡터 그림의 표정 (나른=눈웃음, 도도=활짝, 루미=잔잔한 미소)
  * - hat: 첫 드라이브 선물 모자
  * - path: 탐험이면 눈에 작은 별 반짝임
  */
@@ -102,14 +122,22 @@ fun EggDrawing(size: Dp, modifier: Modifier = Modifier) {
 fun CarlingDrawing(
     size: Dp,
     modifier: Modifier = Modifier,
-    stage: Stage = Stage.BABY,
+    stageIndex: Int = 0,
     glow: Color = BaseGlow,
     path: GrowthPath? = null,
     hat: Boolean = false,
     mood: Personality? = null,
     lineage: Lineage? = null,
-    evoTier: Int = 0,
+    asleep: Boolean = false,
 ) {
+    val art = carlingArt(stageIndex, lineage)
+    if (art != null) {
+        val sleeping = asleep && stageIndex == SLEEP_ART_STAGE
+        ArtDrawing(art, size, modifier, res = if (sleeping) SleepArtRes else art.res, hat = hat, beating = !sleeping)
+        return
+    }
+    val stage = GrowthRules.sizeStage(hatched = true, stageIndex = stageIndex)
+    val evoTier = GrowthRules.evoTier(stageIndex)
     val transition = rememberInfiniteTransition(label = "carling")
     val breath by transition.animateFloat(0.97f, 1.03f, infiniteRepeatable(tween(1600), RepeatMode.Reverse), label = "breath")
     val beat by transition.animateFloat(0.84f, 1.16f, infiniteRepeatable(tween(820), RepeatMode.Reverse), label = "beat")

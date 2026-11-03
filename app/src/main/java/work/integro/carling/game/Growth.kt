@@ -164,6 +164,14 @@ object GrowthRules {
         return reached
     }
 
+    /** 진화 외형 단계: 0=아기/성장, 1=진화1(D30~), 2=진화2(D90~), 3=진화3(완성형). */
+    fun evoTier(stageIndex: Int): Int = when {
+        stageIndex >= 9 -> 3
+        stageIndex >= 6 -> 2
+        stageIndex >= 3 -> 1
+        else -> 0
+    }
+
     /** 캐릭터 그림용 크기 단계. */
     fun sizeStage(hatched: Boolean, stageIndex: Int): Stage = when {
         !hatched -> Stage.EGG

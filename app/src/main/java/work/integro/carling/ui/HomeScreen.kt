@@ -77,6 +77,8 @@ fun HomeScreen(
     }
 
     val carlingSize = if (compact) 300.dp else 400.dp
+    val lookStage = store.devLook?.first ?: data.reachedStage
+    val lookLineage = store.devLook?.second ?: data.lineage
     val playground = @Composable { areaModifier: Modifier ->
         Wandering(
             size = carlingSize,
@@ -85,16 +87,16 @@ fun HomeScreen(
             tapLines = personality.tapLines,
             onPetted = store::pet,
             modifier = areaModifier,
-        ) {
+        ) { napping ->
             Box(contentAlignment = Alignment.BottomEnd) {
                 CarlingDrawing(
                     size = carlingSize,
-                    stage = data.sizeStage,
-                    glow = data.glowColor(),
+                    stageIndex = lookStage,
+                    glow = lookLineage?.let { Color(it.color) } ?: BaseGlow,
                     hat = data.wearingHat,
                     mood = personality,
-                    lineage = data.lineage,
-                    evoTier = data.evoTier,
+                    lineage = lookLineage,
+                    asleep = napping,
                 )
                 if (vehicle.chargePortOpen) Text("🍙", fontSize = 72.sp)
             }
@@ -277,7 +279,7 @@ private fun StatusPanel(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 GameSlot("🃏", "트립카드", enabled = true, badge = data.tripCards.size, modifier = Modifier.weight(1.2f), onClick = onTripCards)
                 GameSlot("🗺", "지도", enabled = true, modifier = Modifier.weight(1f), onClick = onMap)
-                GameSlot("🎩", if (data.wearingHat) "벗기" else "쓰기", enabled = data.hasHat, selected = data.wearingHat, modifier = Modifier.weight(1f), onClick = store::toggleHat)
+                GameSlot("🎩", if (data.wearingHat) "벗기" else "쓰기", enabled = data.hasHat && canWearHat(data.reachedStage, data.lineage), selected = data.wearingHat, modifier = Modifier.weight(1f), onClick = store::toggleHat)
                 Column(Modifier.weight(1.2f), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("📍 위치", style = gameText(17.sp))
                     Spacer(Modifier.height(6.dp))
@@ -306,7 +308,7 @@ private val tutorialSections: List<Triple<String, String, String>> = listOf(
     Triple("🗺", "지도", "지금 지도는 예시 화면이에요. 지역 버튼이나 +, −로 움직여 볼 수 있고, 내 트립 경로는 아직 표시되지 않아요."),
     Triple("🖼", "배경", "도시·바닷가 해안·맑은 하늘·고요한 숲 중에서 고를 수 있어요. 낮과 밤은 차량 시계에 맞춰 저절로 바뀌어요."),
     Triple("🎨", "계열", "운전 습관에 따라 D14에 계열(바람·빛·나무·물·흙)이 정해지고, 몸 색과 외형이 바뀌어요."),
-    Triple("✨", "진화", "D30·D90·D180에 진화카드를 받고 특별 퀘스트를 채우면 진화해요. 단계는 건너뛰지 않아요."),
+    Triple("✨", "진화", "D30·D90·D180에 진화카드를 받고 특별 퀘스트를 채우면 진화해요. 단계는 건너뛰지 않고, 자랄수록 모습이 크게 달라져요."),
     Triple("💗", "돌보기", "쓰다듬기·밥 주기·놀아주기·말 걸기로 교감해요 (하루 서로 다른 2가지 행동까지 XP)."),
     Triple("↩", "되돌아가기", "첫 만남 중에는 화면 왼쪽 위 '뒤로'로 이전 단계를 다시 볼 수 있어요."),
 )
@@ -394,6 +396,18 @@ private fun DevPanel(store: CarlingStore, vehicle: VehicleState, modifier: Modif
                 listOf<Pair<String, Float?>>("실제 시각" to null, "낮" to 0f, "노을" to 0.5f, "밤" to 1f).forEach { (label, value) ->
                     FilterChip(selected = store.devNightness == value, onClick = { store.devNightness = value }, label = { Text(label) })
                 }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                val look = store.devLook
+                OutlinedButton(onClick = {
+                    val from = look?.first ?: (GrowthRules.MAX_STAGE + 1)
+                    store.devLook = (from - 1).coerceAtLeast(0) to lineage
+                }) { Text("◀ 외형") }
+                OutlinedButton(onClick = { store.devLook = null }) { Text(look?.let { "${it.first}단계 · 실제로" } ?: "실제 외형") }
+                OutlinedButton(onClick = {
+                    val from = look?.first ?: -1
+                    store.devLook = (from + 1).coerceAtMost(GrowthRules.MAX_STAGE) to lineage
+                }) { Text("외형 ▶") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(onClick = { store.clock.skipDays(1) }) { Text("다음 날로") }

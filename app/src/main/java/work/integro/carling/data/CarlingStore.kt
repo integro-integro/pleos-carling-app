@@ -228,6 +228,9 @@ class CarlingStore(context: Context, val clock: GameClock) {
     /** 개발용: 낮밤 미리보기. null이면 실제 시각을 따른다. 저장하지 않는다. */
     var devNightness by mutableStateOf<Float?>(null)
 
+    /** 개발용: 외형 미리보기(단계, 계열). null이면 실제 단계를 따른다. 저장하지 않는다. */
+    var devLook by mutableStateOf<Pair<Int, Lineage>?>(null)
+
     fun dismissTripCard() = update { it.copy(pendingCard = null) }
 
     private fun applyDailyDecay() {
