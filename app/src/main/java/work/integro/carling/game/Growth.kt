@@ -2,7 +2,7 @@ package work.integro.carling.game
 
 import kotlinx.serialization.Serializable
 
-/** 빛 — 언제 함께 달렸나. 시동 시각으로 성격·말투와 도착 리포트 표시에만 쓴다(성장 판정 아님). */
+/** 빛 — 언제 함께 달렸나. 시동 시각으로 성격과 트립카드 표시에만 쓴다(성장 판정 아님). */
 @Serializable
 enum class Light(val label: String, val color: Long) {
     DAWN("새벽빛", 0xFF9DB8FF),
@@ -29,8 +29,9 @@ enum class Light(val label: String, val color: Long) {
 }
 
 /**
- * 계열(5계열) — D14에 운전 습관으로 색이 정해지고 진화 1(D30)에서 확정된다.
- * 거리가 아니라 '어떻게 달렸나'로 정한다. 데이터가 부족하면 기본 계열(바람).
+ * 계열(5계열) — 성장 2(빠르면 D14)에 도달할 때 누적 점수로 정해지고 이후 바뀌지 않는다.
+ * 데이터가 부족하면 기본 계열(바람). 실제 판정은 [GrowthRules.scoreTrip]이고,
+ * [condition]은 기획 표현으로 화면에 쓰지 않는다.
  */
 @Serializable
 enum class Lineage(val label: String, val color: Long, val names: List<String>, val condition: String) {
@@ -222,6 +223,7 @@ object GrowthRules {
     }
 
     // ---- 진화카드 · 특별 퀘스트 ----
+    /** [quest]는 기획 문구로 화면에 쓰지 않는다. 실제 조건은 저장한 트립카드 수([memoriesNeeded])다. */
     data class EvoSpec(val evoIndex: Int, val lotteryStartDay: Int, val quest: String, val memoriesNeeded: Int)
 
     val EVOLUTIONS: Map<Int, EvoSpec> = mapOf(
@@ -230,7 +232,10 @@ object GrowthRules {
         3 to EvoSpec(3, 170, "기억 5개를 선택하고 카링과의 여정 회고 완료", 5),
     )
 
-    /** 진화카드 추첨 확률 — 유효 운전일의 트립 횟수별. 6회 실패 후 확정. */
+    /**
+     * 진화카드 추첨 확률 — 트립 횟수별. 5회 실패하면 6번째 추첨에서 확정된다.
+     * 추첨은 그날 첫 트립에서만 하므로 지금은 항상 1회 구간(18%)이 적용된다.
+     */
     const val CARD_PITY = 6
     fun cardChance(trips: Int): Float = when {
         trips <= 1 -> 0.18f

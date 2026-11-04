@@ -135,7 +135,7 @@ class CarlingMotion internal constructor(private val scope: CoroutineScope) {
         }
     }
 
-    /** 가운데로 돌아와 멈춘다 (리포트·추억 카드를 볼 때). */
+    /** 가운데로 돌아와 멈춘다 (트립카드 등 다른 창을 볼 때). */
     fun rest() {
         job?.cancel()
         job = scope.launch {

@@ -103,8 +103,8 @@ fun simplifyTrack(points: List<GeoDot>): List<GeoDot> {
 }
 
 /**
- * 지도에 그릴 길 모양. 실제 경로가 있으면 그대로 쓴다. 없으면(위치가 끊겼거나 이전 트립) 지어낸다.
- * 지어낸 길은 직선이 아니라 도로처럼 굽은 선이고, 같은 길은 언제나 같은 모양이 되도록 좌표로 정한다.
+ * 길 모양. 실제 경로가 있으면 그대로 쓴다. 없으면(위치가 끊겼거나 이전 트립) 지어낸다.
+ * 지어낸 모양은 지도에 그리지 않고 화면 맞춤 범위를 계산할 때만 쓴다. 같은 길은 언제나 같은 모양이 되도록 좌표로 정한다.
  */
 fun roadShape(route: MapRoute, track: List<GeoDot>? = null): List<GeoDot> {
     if (track != null && track.size >= MIN_TRACK_POINTS) return track

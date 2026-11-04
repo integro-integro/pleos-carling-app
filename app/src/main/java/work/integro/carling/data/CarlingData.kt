@@ -9,7 +9,7 @@ import work.integro.carling.game.Region
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
-/** 기기에 저장되는 카링의 모든 상태. 정밀 위치는 저장하지 않는다(격자 해시만). */
+/** 기기에 저장되는 카링의 모든 상태. 위치는 어림해서 저장한다(장소는 격자 해시, 길 양 끝은 약 1km 단위). */
 @Serializable
 data class CarlingData(
     val hatched: Boolean = false,
@@ -52,7 +52,7 @@ data class CarlingData(
     val mpDate: String? = null,
     val mpTodayValue: Int = 0,
 
-    // 계열 — D14에 결정, D30(진화1)에서 확정. 누적 점수로 판정.
+    // 계열 — 성장 2(빠르면 D14)에 도달할 때 누적 점수로 결정하고 이후 바뀌지 않는다.
     val lineageScores: Map<Lineage, Float> = emptyMap(),
     val lineage: Lineage? = null,
 
@@ -160,7 +160,7 @@ data class ActiveTrip(
     val startLng: Double? = null,
 )
 
-/** 지도에 켜진 길 하나. 출발지가 없으면 도착지를 지나는 고리 길로 그린다. */
+/** 지도에 켜진 길 하나. 실제 경로가 있으면 선으로, 없으면 도착지 불빛으로 그린다. [name]은 내비 장소 이름이다. */
 @Serializable
 data class MapRoute(
     val toLat: Double,
@@ -172,7 +172,7 @@ data class MapRoute(
     val distanceKm: Float? = null,
     /** 이 길을 달린 횟수. 많을수록 지도에서 더 밝다. */
     val visits: Int = 1,
-    /** 실제 경로가 저장된 열쇠. 경로를 기록하지 못했으면 null이고 길 모양을 지어낸다. */
+    /** 실제 경로가 저장된 열쇠. 경로를 기록하지 못했으면 null이고 도착지 불빛으로만 그린다. */
     val trackKey: String? = null,
 ) {
     fun connects(aLat: Double, aLng: Double, bLat: Double, bLng: Double): Boolean =

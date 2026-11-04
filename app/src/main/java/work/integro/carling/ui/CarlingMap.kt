@@ -291,13 +291,13 @@ private fun DrawScope.drawDarkLand(view: MapView, zoom: Float) {
     }
 }
 
-/** 자동으로 붙는 기본 이름 — 사용자가 직접 지은 이름이 아니라 지도에 글자로 띄우지 않는다. */
+/** 개발자 도구의 가상 주행이 붙이는 이름. 장소를 가리키지 않아 지도에 글자로 띄우지 않는다. */
 private val DefaultNames = setOf("새로운 길", "늘 가던 길")
 
 /**
  * 켜진 길. 자주 달린 길일수록 밝고 굵다.
  * 실제 경로를 기록한 길만 선으로 그리고, 기록이 없는 길은 지어낸 선 대신 도착 불빛 점으로만 표시한다.
- * 라벨은 사용자가 직접 지은 이름만, 그마저도 서로 겹치면 생략한다.
+ * 라벨은 내비 장소 이름이고, 서로 겹치면 생략한다.
  */
 private fun DrawScope.drawRoads(view: MapView, routes: List<MapRoute>, roads: List<List<GeoDot>>, measurer: TextMeasurer) {
     // 1패스: 길 선과 도착 불빛
@@ -323,7 +323,7 @@ private fun DrawScope.drawRoads(view: MapView, routes: List<MapRoute>, roads: Li
         drawCircle(RoadCore.copy(alpha = bright), if (route.trackKey != null) 6.5f else 5f, at)
     }
 
-    // 2패스: 라벨. 사용자가 지은 이름만, 이미 그린 라벨과 겹치면 건너뛴다.
+    // 2패스: 라벨. 이미 그린 라벨과 겹치면 건너뛴다.
     val drawn = ArrayList<Rect>()
     routes.forEach { route ->
         val name = route.name ?: return@forEach

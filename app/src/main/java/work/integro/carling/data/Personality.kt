@@ -3,7 +3,7 @@ package work.integro.carling.data
 import androidx.compose.ui.graphics.Color
 import kotlinx.serialization.Serializable
 
-/** 첫 선택 성격. 말투와 표정만 바꾸고, 모습은 경험이 정한다(기획안 4장). [colorValue]는 선택 카드 강조색. */
+/** 성격. 고르지 않고 첫 운전 시간대로 정해진다. 말투와 표정만 바꾸고, 모습은 경험이 정한다. [colorValue]는 강조색. */
 @Serializable
 enum class Personality(
     val label: String,

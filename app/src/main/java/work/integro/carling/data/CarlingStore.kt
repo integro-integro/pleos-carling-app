@@ -37,7 +37,7 @@ data class TripResult(
 
 /**
  * 카링 상태를 기기 안에 저장하고 v1 성장 엔진을 적용한다.
- * XP(성장 에너지)와 MP(지도 포인트)는 누적이며 서로 환산하지 않는다.
+ * XP(성장 에너지)와 MP(지도 포인트)는 누적값으로 세고 서로 환산하지 않는다. 성장하면 초과분을 버린다.
  * 모든 변경은 메인 스레드에서 호출한다.
  */
 class CarlingStore(context: Context, val clock: GameClock) {
@@ -121,7 +121,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
         }
     }
 
-    /** 위치는 '처음 간 곳/다시 찾은 곳' 판정에만 쓴다. 언제든 바꿀 수 있다. */
+    /** 위치는 지도의 길, 처음 간 곳 판정, 특산물 지역, 날씨 인사에 쓴다. 언제든 바꿀 수 있다. */
     fun setLocationConsent(allowed: Boolean) = update {
         it.copy(locationConsent = allowed, locationConsentVersion = CURRENT_LOCATION_CONSENT)
     }
