@@ -171,6 +171,16 @@ object GrowthRules {
         else -> 20
     }
 
+    /** 트립 안전 점수. 급조작 수를 모르면(차속 권한 없음, 복구된 주행) 점수가 없다. */
+    fun safetyScore(harshEvents: Int?): Int? = when (harshEvents) {
+        null -> null
+        0 -> 95
+        else -> (92 - harshEvents * 4).coerceAtLeast(72)
+    }
+
+    /** 안전 보너스를 받는 트립인지. 점수가 없으면 보너스를 주지 않는다. */
+    fun isSafeTrip(score: Int?): Boolean = score != null && score >= SAFE_SCORE_MIN
+
     /** 하루 운전 XP = 기본 + 안전 보너스(90점 이상 트립당 +2, 5건까지). 상한 30. */
     fun driveXp(trips: Int, safeTrips: Int): Int =
         (driveBaseXp(trips) + safeTrips.coerceAtMost(SAFE_BONUS_MAX_TRIPS) * SAFE_BONUS_EACH).coerceAtMost(DRIVE_XP_CAP)

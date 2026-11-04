@@ -22,6 +22,7 @@ data class CarlingData(
     val firstPetDone: Boolean = false,
     val firstTripMinutes: Int = 0,
     val firstTripDistanceKm: Float? = null,
+    /** 첫 운전의 안전 점수. 0이면 점수가 없다. */
     val firstTripSafety: Int = 0,
     val firstTripPlaceName: String? = null,
 

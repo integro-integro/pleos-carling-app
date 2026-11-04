@@ -38,6 +38,15 @@ class GrowthRulesTest {
     }
 
     @Test
+    fun noSpeedDataMeansNoSafetyBonus() {
+        assertNull(GrowthRules.safetyScore(null))
+        assertEquals(false, GrowthRules.isSafeTrip(GrowthRules.safetyScore(null)))
+        assertEquals(true, GrowthRules.isSafeTrip(GrowthRules.safetyScore(0)))
+        assertEquals(false, GrowthRules.isSafeTrip(GrowthRules.safetyScore(1)))
+        assertEquals(72, GrowthRules.safetyScore(100))
+    }
+
+    @Test
     fun intimacyXpCapsAtTwoActions() {
         assertEquals(0, GrowthRules.intimacyXp(0))
         assertEquals(5, GrowthRules.intimacyXp(1))

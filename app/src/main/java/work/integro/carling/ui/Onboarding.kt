@@ -106,7 +106,7 @@ fun AwakenScreen(data: CarlingData, onWake: () -> Unit) = Step {
             data.firstTripPlaceName?.let { TripCardLine("여정", it) }
             val dist = data.firstTripDistanceKm?.takeIf { it > 0.05f }?.let { " · %.1fkm".format(it) } ?: ""
             TripCardLine("함께한 시간", "${data.firstTripMinutes}분$dist")
-            TripCardLine("안전운전", "${data.firstTripSafety}점")
+            if (data.firstTripSafety > 0) TripCardLine("안전운전", "${data.firstTripSafety}점")
             TripCardLine("지도", "위치를 허용하면 이 길이 켜져요")
         }
     }
@@ -257,7 +257,7 @@ fun LocationConsentScreen(personality: Personality, onAnswer: (Boolean) -> Unit,
             ConsentLine("어디로 보내나요", "기록은 이 차 안에만 있어요. 날씨를 볼 때만 약 10km 단위로 어림한 위치를 날씨 서비스(Open-Meteo)로 보내요.")
             ConsentLine("언제든 바꿀 수 있어요", "홈 화면에서 끄면 그때부터 위치를 쓰지 않아요.")
             ConsentLine("허용하지 않으면", "카링은 똑같이 잘 자라요. 다만 지도에 길이 켜지지 않고, 특산물과 날씨 인사도 받을 수 없어요.")
-            ConsentLine("시스템 창이 뜨면", "'허용'을 눌러 주세요. 부드러운 운전 칭찬에 쓰는 차량 속도도 시스템에서는 '위치' 권한으로 함께 묻어요.")
+            ConsentLine("시스템 창이 뜨면", "'허용'을 눌러 주세요. 차량 위치와, 안전 점수에 쓰는 차량 속도를 차례로 물어요. 창에는 '알 수 없는 작업'이나 '위치'로 보일 수 있어요.")
         }
     }
     Spacer(Modifier.height(28.dp))

@@ -72,6 +72,8 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.pleos.vehicle)
     implementation(libs.pleos.navihelper)
+    implementation(libs.pleos.fusedlocation)
+    implementation(libs.pleos.texttospeech)
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)
 }

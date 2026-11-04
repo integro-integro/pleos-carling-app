@@ -40,7 +40,7 @@ class TripTracker(
     private val voice: Voice,
     private val weather: WeatherClient,
 ) {
-    /** 이번 주행의 실제 경로. 메모리에만 두었다가 주행이 끝나면 저장한다. 앱이 도중에 꺼지면 그 트립은 길을 지어낸다. */
+    /** 이번 주행의 실제 경로. 메모리에만 두었다가 주행이 끝나면 저장한다. 앱이 도중에 꺼지면 그 트립은 도착지 불빛으로만 남는다. */
     private val track = mutableListOf<GeoDot>()
     private var trackJob: Job? = null
 
@@ -75,6 +75,7 @@ class TripTracker(
         // 위치 요청은 한 번에 하나만 처리되므로 출발지와 날씨가 같은 좌표를 함께 쓴다
         track.clear()
         trackJob = scope.launch {
+            if (store.usesLocation) places.beginTracking()
             val start = if (store.usesLocation) places.currentCoordinates() else null
             start?.let { (lat, lng) ->
                 store.setTripStart(lat, lng)
@@ -85,6 +86,11 @@ class TripTracker(
             // SDK에 지나온 경로를 주는 기능이 없어 현재 위치를 모아 실제 경로를 만든다
             while (true) {
                 delay(TRACK_SAMPLE_MS)
+                // 주행 중에 위치 사용을 끄면 그때부터 기록하지 않는다
+                if (!store.usesLocation) {
+                    places.endTracking()
+                    return@launch
+                }
                 places.currentCoordinates()?.let { (lat, lng) -> track += GeoDot(lat, lng) }
             }
         }
@@ -112,6 +118,7 @@ class TripTracker(
         val distance = vehicle.odometerKm()?.let { now -> trip.startOdometerKm?.let { (now - it).coerceAtLeast(0f) } }
         trackJob?.cancel()
         val place = if (store.usesLocation) places.currentPlace() else null
+        places.endTracking()
         val path = track.toList() + listOfNotNull(place?.lat?.let { lat -> place.lng?.let { lng -> GeoDot(lat, lng) } })
         track.clear()
         store.clearActiveTrip()

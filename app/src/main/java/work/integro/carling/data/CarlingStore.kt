@@ -417,8 +417,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
         val day = clock.dateOf(trip.startMillis).toString()
         val minutes = ((seconds + 30) / 60).toInt().coerceAtLeast(1)
         val light = Light.ofHour(clock.hourOf(trip.startMillis))
-        val safety = if (trip.harshEvents == null || trip.harshEvents == 0) 95
-        else (92 - trip.harshEvents * 4).coerceAtLeast(72)
+        val safety = GrowthRules.safetyScore(trip.harshEvents)
 
         // v1 첫 만남: 알이 깨어나기 전의 '첫 운전' → 트립카드 #001만 만들고 성장 엔진은 돌리지 않는다.
         if (!data.hatched) {
@@ -428,7 +427,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
                     firstTripDone = true,
                     firstTripMinutes = minutes,
                     firstTripDistanceKm = trip.distanceKm,
-                    firstTripSafety = safety,
+                    firstTripSafety = safety ?: 0,
                     firstTripPlaceName = trip.placeName,
                     togetherDays = it.togetherDays + day,
                     tripCount = 1,
@@ -446,7 +445,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
                         minutes = minutes,
                         distanceKm = trip.distanceKm,
                         light = light,
-                        safety = safety.takeIf { trip.harshEvents != null },
+                        safety = safety,
                         placeName = trip.placeName,
                         newPlace = true,
                         dayNumber = 1,
@@ -461,7 +460,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
         rolloverIfNeeded()
         val before = data
         val oldStage = before.reachedStage
-        val safe = safety >= GrowthRules.SAFE_SCORE_MIN
+        val safe = GrowthRules.isSafeTrip(safety)
         val newPlace = trip.placeCell?.let { it !in before.placeCells }
 
         // 진화카드 추첨 — 유효 운전일당 1회
@@ -536,7 +535,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
                     minutes = minutes,
                     distanceKm = trip.distanceKm,
                     light = light,
-                    safety = safety.takeIf { trip.harshEvents != null },
+                    safety = safety,
                     placeName = trip.placeName,
                     newPlace = newPlace,
                     dayNumber = dayNum,

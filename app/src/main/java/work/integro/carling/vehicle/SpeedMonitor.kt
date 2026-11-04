@@ -16,9 +16,8 @@ private const val TAG = "SpeedMonitor"
 const val CAR_SPEED_PERMISSION = "android.car.permission.CAR_SPEED"
 
 /**
- * 차속으로 급가속·급감속 횟수를 센다 — '부드러운 운전 칭찬'용.
+ * 차속으로 급가속·급감속 횟수를 센다. 트립 안전 점수의 재료다.
  * Vehicle SDK에 속도가 없어 AAOS 표준 CarPropertyManager를 쓴다.
- * 점수를 깎는 데는 쓰지 않는다(칭찬만).
  */
 class SpeedMonitor(private val context: Context) {
 

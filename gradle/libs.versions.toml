@@ -9,6 +9,8 @@ kotlinxSerialization = "1.9.0"
 junit = "4.13.2"
 pleosVehicle = "2.3.2"
 pleosNaviHelper = "3.0.5"
+pleosFusedLocation = "1.1.3"
+pleosTextToSpeech = "3.3.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -24,6 +26,8 @@ kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 pleos-vehicle = { group = "ai.pleos.playground", name = "Vehicle", version.ref = "pleosVehicle" }
 pleos-navihelper = { group = "ai.pleos.playground", name = "NaviHelper", version.ref = "pleosNaviHelper" }
+pleos-fusedlocation = { group = "ai.pleos.playground", name = "FusedLocation", version.ref = "pleosFusedLocation" }
+pleos-texttospeech = { group = "ai.pleos.playground", name = "TextToSpeech", version.ref = "pleosTextToSpeech" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

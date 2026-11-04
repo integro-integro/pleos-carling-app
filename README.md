@@ -2,6 +2,7 @@
 
 차를 탈수록, 나를 닮아 자라는 차 안의 친구 — Pleos Connect 차량용 펫 육성 앱.
 
+- 공모전 MVP와 이후 범위: [docs/mvp-feature-spec.md](docs/mvp-feature-spec.md)
 - 기능별 개발 가능 여부와 구현 현황: [docs/feature-feasibility.md](docs/feature-feasibility.md)
 - 성장 규칙과 완전체 도달 계산: [docs/growth-balance.md](docs/growth-balance.md)
 - 처음부터 끝까지 테스트하는 순서: [docs/test-guide.md](docs/test-guide.md)
@@ -14,6 +15,7 @@
   - 행동 8종: 휘어진 길로 걷기, 달리기, 큰 점프, 지그재그, 빙글 돌기, 두리번거리기, 몸 흔들기, 낮잠
   - 누르면 폴짝 뛰며 하트와 한마디 (친밀도 +1, 하루 5회까지) / 빠르게 세 번 누르면 어지러워함
 - **주행/정차 모드:** P단이 아니면 터치 없는 작은 위젯과 한 줄만 표시 (`distractionOptimized`). 날짜가 바뀐 뒤 첫 운전에는 날씨 인사
+- **음성 한마디:** TextToSpeech SDK를 차량 안 엔진(`ON_DEVICE`)으로 사용. 홈 화면 오른쪽 위에서 끌 수 있음
 - **주행 기록:** 기어 P→D→P를 주행 1회로 기록하고, 주차하면 새 트립카드를 보여줌. 주행 도중 앱이 종료돼도 이어서 기록
 - **자동 시작:** 시동(부팅) 때 앱이 스스로 깨어나 포그라운드 서비스로 대기함. 카링 화면을 열지 않아도 그날 주행이 기록됨 (`trip/BootReceiver.kt`, `trip/TripService.kt`)
 - **세로 창 대응:** Pleos에서 앱 두 개를 나란히 띄우면 세로 배치로 바뀜
@@ -41,7 +43,8 @@
    브라우저에서 http://127.0.0.1:8088/ 을 열고 Emulation Controls로 들어간다.
    - Motion > Gear Selection: P / D 전환
    - Energy > Charge Port / Charge Switch: 충전
-4. 위치 동의 뒤 뜨는 시스템 권한 창을 허용한다 (급가감속 판정에 쓰는 차량 속도가 '위치' 권한으로 함께 표시된다).
+4. 위치 동의 뒤 뜨는 시스템 권한 창을 허용한다. 차량 위치 권한은 창에 '알 수 없는 작업'으로, 차량 속도 권한은 '위치'로 보일 수 있다.
+5. 위치 이동은 `adb emu geo fix <경도> <위도>`로 재현한다. 가상 콘솔에는 위치 이동 기능이 보이지 않는다.
 
 ### 공모전 제출용 release APK
 ```bash
@@ -62,7 +65,8 @@
 | `CarlingApplication.kt` | 차량 신호와 주행 기록을 앱 전체 범위에서 유지 |
 | `vehicle/VehicleSignals.kt` | Vehicle SDK: 기어, 충전구, 충전 스위치, SOC, 주행거리 |
 | `vehicle/SpeedMonitor.kt` | AAOS `PERF_VEHICLE_SPEED`: 급가속·급감속 횟수 |
-| `navi/NaviPlaces.kt` | NaviHelper SDK: 주행 종료 위치를 격자 해시로 변환, 목적지 이름 |
+| `navi/VehicleLocation.kt` | FusedLocation SDK: 달린 경로와 현재 좌표 |
+| `navi/NaviPlaces.kt` | NaviHelper SDK: 장소 이름, 목적지 도착. 좌표를 받지 못할 때 대체 위치 |
 | `trip/TripTracker.kt` | P→D→P를 주행 1회로 묶음, 충전 세션 감지 |
 | `game/Growth.kt` | 빛·계열·성장 단계·진화·XP·MP 규칙 (순수 함수, 단위 테스트) |
 | `game/GameClock.kt`, `game/DevSimulator.kt` | 시간 건너뛰기, 가상 주행 (데모용) |
@@ -76,7 +80,7 @@
 | `ui/Items.kt`, `ui/StageChange.kt` | 아이템·특산물, 성장·진화 연출 |
 | `ui/Theme.kt`, `ui/SceneBackground.kt` | 테마, 배경, 좁은 창(세로) 판정 |
 | `ui/CarlingCharacter.kt`, `ui/CarlingArt.kt` | 캐릭터 그림, 단계·계열별 일러스트 |
-| `voice/Voice.kt` | 음성 한마디 (현재 에뮬레이터에서 TTS 초기화 실패, 무음 동작) |
+| `voice/Voice.kt` | TextToSpeech SDK 음성 한마디 (실패하면 무음 동작) |
 
 ## 테스트
 
@@ -87,7 +91,7 @@
 ## 테스트 환경
 
 - Pleos Connect Emulator v2.1.0 (Android 14)
-- Vehicle SDK 2.3.2, NaviHelper SDK 3.0.5
+- Vehicle SDK 2.3.2, NaviHelper SDK 3.0.5, FusedLocation SDK 1.1.3, TextToSpeech SDK 3.3.1
 - AGP 9.4.1, Gradle 9.6.0, Kotlin 2.2.10, minSdk 28
 
 ## 사용 권한
@@ -96,7 +100,9 @@
 |---|---|
 | `pleos.car.permission.CAR_DRIVE` | 기어, 주행거리 |
 | `pleos.car.permission.CAR_ENERGY` | 충전구, 충전 스위치, 배터리 |
-| `pleos.car.permission.NAVI_ROUTE` | 현재 위치, 목적지 정보 |
+| `pleos.car.permission.NAVI_ROUTE` | 장소 이름, 목적지 정보 |
+| `pleos.car.permission.FUSED_LOCATION` | 달린 경로, 현재 좌표 (런타임 권한) |
+| `pleos.car.permission.TTS_SERVICE` | 음성 한마디 |
 | `android.car.permission.CAR_SPEED` | 차속 (런타임 권한) |
 | `android.permission.INTERNET` | 날씨 조회 (Open-Meteo) |
 | `RECEIVE_BOOT_COMPLETED`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`, `POST_NOTIFICATIONS` | 자동 시작과 상주 서비스 |

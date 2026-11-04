@@ -177,8 +177,13 @@ fun HomeScreen(
         }
 
         // 도움말(튜토리얼) — 언제든 열어 다시 볼 수 있다
-        TextButton(onClick = { showTutorial = true }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
-            Text("❓ 도움말", fontSize = 18.sp, color = Ink, modifier = Modifier.onScene())
+        Row(Modifier.align(Alignment.TopEnd).padding(12.dp)) {
+            TextButton(onClick = store::toggleVoice) {
+                Text(if (data.voiceOn) "🔊 음성 켜짐" else "🔇 음성 꺼짐", fontSize = 18.sp, color = Ink, modifier = Modifier.onScene())
+            }
+            TextButton(onClick = { showTutorial = true }) {
+                Text("❓ 도움말", fontSize = 18.sp, color = Ink, modifier = Modifier.onScene())
+            }
         }
 
         if (BuildConfig.DEBUG) DevPanel(store, vehicle, Modifier.align(Alignment.TopStart).padding(12.dp))
@@ -369,6 +374,7 @@ private val tutorialSections: List<Triple<String, String, String>> = listOf(
     Triple("⭐", "지도 포인트 (MP)", "트립카드를 저장하면 받아요. 새 길 +3, 익숙한 길 +1 (운행일마다 2장까지). 저장은 그보다 많이 해도 돼요."),
     Triple("🗺", "지도", "처음엔 비어 있어요. 운전을 마칠 때마다 달린 길이 선으로 켜지고, 경로를 기록하지 못한 곳은 도착지에 불빛으로 보여요. 자주 달릴수록 밝아지고, 확대하면 경로를 자세히 볼 수 있어요. 위치 사용이 켜져 있어야 해요."),
     Triple("🌤", "날씨 인사", "날짜가 바뀐 뒤 첫 운전 때 말을 걸어요. 오전에는 오늘 예보를, 오후에는 지금 날씨를 알려줘요. 위치 사용이 켜져 있어야 해요."),
+    Triple("🔊", "음성", "주행을 시작하거나 마칠 때 짧게 말을 걸어요. 화면 오른쪽 위에서 언제든 끌 수 있어요."),
     Triple("🖼", "배경", "알이 깨어나면 도시·바닷가 해안·맑은 하늘·고요한 숲 중에서 고를 수 있어요. 낮과 밤은 차량 시계에 맞춰 저절로 바뀌어요."),
     Triple("🎁", "아이템", "성장 1이 되면 열려요. 선글라스·목걸이·신발 등 10가지 중 하나를 골라 카링을 꾸며 보세요."),
     Triple("🍊", "지역 특산물", "제주도·강원도·부산·대구·전주를 방문하면 특산물을 받아요(지역마다 하루 1개, 위치 사용 필요). 배고플 때 먹이면 경험치가 더 많이 올라요."),
