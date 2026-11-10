@@ -1,12 +1,19 @@
 package work.integro.carling.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.size
+import work.integro.carling.game.GrowthRules
+import work.integro.carling.game.Lineage
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -33,10 +40,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import work.integro.carling.data.RECENT_DESTINATIONS
-import work.integro.carling.data.RecentDestination
 import work.integro.carling.data.TripCard
-import work.integro.carling.data.recentDestinations
+import work.integro.carling.game.CarCatalog
+import work.integro.carling.game.CarRarity
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -57,101 +63,43 @@ private val TripCard.routeText: String
         else -> "위치 사용 안 함"
     }
 
-/** 카드 한 장. 목록과 새 카드 알림에서 같은 모양으로 쓴다. */
+/** 운행이 끝나면 나오는 새 트립카드. 심장 뒷면에서 저장하면 자동차가 공개된다. */
 @Composable
-private fun TripCardTile(card: TripCard, onClick: () -> Unit, modifier: Modifier = Modifier, visits: Int = 1) {
-    val shape = RoundedCornerShape(22.dp)
-    val tint = Color(card.light.color)
-    Surface(onClick = onClick, shape = shape, color = Color.Transparent, modifier = modifier) {
-        Column(
-            Modifier
-                .background(Brush.linearGradient(listOf(PanelLight, Panel)), shape)
-                .border(2.dp, if (card.saved) Gold else tint.copy(alpha = 0.55f), shape)
-                .padding(20.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("TRIP CARD #%03d".format(card.number), fontSize = 16.sp, color = Gold, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.weight(1f))
-                if (card.saved) Text("★ 저장됨", fontSize = 16.sp, color = Gold)
-            }
-            Spacer(Modifier.height(10.dp))
-            Text(card.title, fontSize = 26.sp, color = Ink, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(4.dp))
-            Text("${card.date} · ${card.startTime}${if (visits > 1) " · ${visits}번 방문" else ""}", fontSize = 17.sp, color = Muted)
-            Spacer(Modifier.height(10.dp))
-            Text("${card.minutes}분 · ${card.distanceText}", fontSize = 19.sp, color = Ink)
-            card.highlights.firstOrNull()?.let {
-                Spacer(Modifier.height(6.dp))
-                Text("✨ $it", fontSize = 17.sp, color = tint, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-    }
-}
-
-/** 주차 후 새 카드가 나오는 화면. 카드를 누르면 상세로 간다. */
-@Composable
-fun NewTripCardDialog(card: TripCard, onOpen: () -> Unit, onClose: () -> Unit) {
+fun NewTripCardDialog(card: TripCard, canSave: Boolean, xpIfSaved: Int, onSave: () -> Unit, onClose: () -> Unit) {
     Scrim {
-        Text("새 트립카드가 나왔어요", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Ink)
-        Spacer(Modifier.height(20.dp))
-        TripCardTile(card, onClick = onOpen, modifier = Modifier.widthIn(max = 480.dp).fillMaxWidth())
+        Text(if (card.saved) "트립카드를 저장했어요!" else "새 트립카드를 얻었어요", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Ink)
         Spacer(Modifier.height(14.dp))
-        Text("카드를 누르면 상세를 보고 저장할 수 있어요", fontSize = 19.sp, color = Muted)
-        Spacer(Modifier.height(20.dp))
-        Button(onClick = onClose, modifier = Modifier.height(60.dp).width(200.dp)) { Text("나중에", fontSize = 24.sp) }
+        TripCardReveal(card, canSave, xpIfSaved, width = 300.dp, onSave = onSave)
+        Spacer(Modifier.height(14.dp))
+        Button(onClick = onClose, modifier = Modifier.height(60.dp).width(200.dp)) { Text(if (card.saved) "닫기" else "나중에", fontSize = 24.sp) }
     }
 }
-
-private enum class CardTab { RECENT, SAVED, LOG }
 
 /**
- * 우리의 트립카드. 트립은 자동으로 쌓인다.
- * 최근 목적지는 내비처럼 목적지별 최근 20곳이고, Drive Log에는 모든 트립이 남는다.
+ * 우리의 트립카드. 운전할 때마다 쌓이고, 저장하지 않은 카드는 심장 뒷면이다. 누르면 크게 보고 저장할 수 있다.
  */
 @Composable
 fun TripCardsDialog(cards: List<TripCard>, onOpen: (Int) -> Unit, onClose: () -> Unit) {
-    var tab by remember { mutableStateOf(CardTab.RECENT) }
-    val recent = remember(cards) { cards.recentDestinations() }
-    val shown: List<RecentDestination> = when (tab) {
-        CardTab.RECENT -> recent
-        CardTab.SAVED -> cards.filter { it.saved }.asReversed().map { RecentDestination(it, 1) }
-        CardTab.LOG -> cards.asReversed().map { RecentDestination(it, 1) }
-    }
+    var savedOnly by remember { mutableStateOf(false) }
+    val shown = remember(cards, savedOnly) { cards.asReversed().filter { !savedOnly || it.saved } }
     Scrim {
-        Text("우리의 트립카드", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Ink)
+        Text("트립카드", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Ink)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            FilterChip(selected = tab == CardTab.RECENT, onClick = { tab = CardTab.RECENT }, label = { Text("최근 목적지 ${recent.size}", fontSize = 18.sp) })
-            FilterChip(selected = tab == CardTab.SAVED, onClick = { tab = CardTab.SAVED }, label = { Text("저장한 트립 ${cards.count { it.saved }}", fontSize = 18.sp) })
-            FilterChip(selected = tab == CardTab.LOG, onClick = { tab = CardTab.LOG }, label = { Text("Drive Log ${cards.size}", fontSize = 18.sp) })
+            FilterChip(selected = !savedOnly, onClick = { savedOnly = false }, label = { Text("전체 ${cards.size}", fontSize = 18.sp) })
+            FilterChip(selected = savedOnly, onClick = { savedOnly = true }, label = { Text("저장한 카드 ${cards.count { it.saved }}", fontSize = 18.sp) })
         }
         Spacer(Modifier.height(8.dp))
-        Text(
-            when (tab) {
-                CardTab.RECENT -> "목적지별로 최근 ${RECENT_DESTINATIONS}곳을 자동으로 모아요. 다시 가면 맨 위로 올라와요."
-                CardTab.SAVED -> "마음에 들어 직접 저장한 트립이에요."
-                CardTab.LOG -> "지금까지 달린 모든 트립이에요."
-            },
-            fontSize = 17.sp, color = Muted, textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(12.dp))
-        if (shown.isEmpty()) {
-            Text(
-                if (tab == CardTab.SAVED) "아직 저장한 트립이 없어요.\n카드를 눌러 마음에 드는 트립을 저장해 보세요."
-                else "아직 트립카드가 없어요. 함께 달리면 한 장씩 생겨요.",
-                fontSize = 21.sp, lineHeight = 31.sp, color = Muted, textAlign = TextAlign.Center,
-                modifier = Modifier.padding(vertical = 60.dp),
-            )
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth().height(500.dp),
-            ) {
-                items(shown, key = { it.card.number }) { item ->
-                    TripCardTile(item.card, onClick = { onOpen(item.card.number) }, visits = item.visits)
-                }
+        Text("운전할 때마다 카드가 한 장 생겨요. 24시간 안에 저장해야 자동차와 아이템을 받고, 저장하지 않은 카드는 사라져요.", fontSize = 17.sp, color = Muted, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(10.dp))
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(4),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth().height(460.dp),
+        ) {
+            items(shown, key = { it.number }) { card ->
+                Surface(onClick = { onOpen(card.number) }, color = Color.Transparent) { MiniTripCard(card, width = 150.dp) }
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -159,45 +107,103 @@ fun TripCardsDialog(cards: List<TripCard>, onOpen: (Int) -> Unit, onClose: () ->
     }
 }
 
-/** 트립 상세와 저장. */
+/**
+ * 도감 — 트립카드를 저장할 때마다 나오는 자동차를 모은다. 못 모은 차는 카드 뒷면, 모은 차는 누르면 그 카드를 연다.
+ */
 @Composable
-fun TripCardDetailDialog(card: TripCard, mpIfSaved: Int, onToggleSaved: () -> Unit, onClose: () -> Unit) {
+fun DexDialog(cards: List<TripCard>, lineage: Lineage?, stage: Int, onOpen: (Int) -> Unit, onClose: () -> Unit) {
+    val counts = remember(cards) { cards.mapNotNull { it.carModel }.groupingBy { it }.eachCount() }
+    var carlingTab by remember { mutableStateOf(false) }
+    val owned = listOfNotNull(lineage)
     Scrim {
-        Text("TRIP CARD #%03d".format(card.number), fontSize = 18.sp, color = Gold, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(6.dp))
-        Text(card.title, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Ink, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(18.dp))
-        DetailLine("날짜", "${card.date} ${card.startTime} · 함께한 지 ${card.dayNumber}일째")
-        DetailLine("함께한 시간", "${card.minutes}분")
-        DetailLine("거리", card.distanceText)
-        DetailLine("시간대", card.light.label)
-        DetailLine("안전운전", card.safety?.let { "${it}점" } ?: "측정 안 됨")
-        DetailLine("길", card.routeText)
-        if (card.driveXpToday > 0) DetailLine("운전 XP", "이날 누적 ${card.driveXpToday} XP")
-        if (card.mpGained > 0) DetailLine("받은 MP", "+${card.mpGained} MP")
-        card.highlights.forEach { DetailLine("특별한 순간", it) }
-        Spacer(Modifier.height(20.dp))
-        GameButton(
-            text = when {
-                card.saved -> "저장 취소"
-                mpIfSaved > 0 -> "이 트립 저장 (+$mpIfSaved MP)"
-                else -> "이 트립 저장"
-            },
-            icon = if (card.saved) "☆" else "★",
-            top = if (card.saved) Color(0xFF7C84B8) else Color(0xFF9BD0FF),
-            bottom = if (card.saved) Color(0xFF4F568A) else Color(0xFF3B82E6),
-            enabled = true,
-            modifier = Modifier.widthIn(min = 340.dp),
-            onClick = onToggleSaved,
-        )
-        if (!card.saved && mpIfSaved == 0) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                if (card.mpGained > 0) "이 카드의 MP는 이미 받았어요." else "이 날의 MP 2장을 다 받았어요. 저장은 할 수 있어요.",
-                fontSize = 17.sp, color = Muted,
-            )
+        Text("도감", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Ink)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FilterChip(selected = !carlingTab, onClick = { carlingTab = false }, label = { Text("🚗 자동차 ${counts.size} / ${CarCatalog.ALL.size}", fontSize = 18.sp) })
+            FilterChip(selected = carlingTab, onClick = { carlingTab = true }, label = { Text("💚 카링 ${owned.size} / ${Lineage.entries.size}", fontSize = 18.sp) })
+        }
+        Spacer(Modifier.height(8.dp))
+        if (carlingTab) {
+            CarlingDex(owned, stage)
+            Spacer(Modifier.height(16.dp))
+            Button(onClick = onClose, modifier = Modifier.height(60.dp).width(200.dp)) { Text("닫기", fontSize = 24.sp) }
+            return@Scrim
+        }
+        Text("트립카드를 저장할 때마다 현대·기아·제네시스 자동차가 한 대씩 나와요. 못 모은 차는 뒷면으로 보이고, 모은 차를 누르면 카드를 볼 수 있어요.", fontSize = 17.sp, color = Muted, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            CarRarity.entries.forEach { r ->
+                val have = CarCatalog.ALL.count { it.rarity == r && it.id in counts }
+                Text("● ${r.label} $have/${CarCatalog.ALL.count { it.rarity == r }}", fontSize = 16.sp, color = Color(r.color))
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(4),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth().height(460.dp),
+        ) {
+            items(CarCatalog.ALL, key = { it.id }) { car ->
+                val latest = cards.lastOrNull { it.carModel == car.id }
+                Box(
+                    Modifier.height(170.dp).fillMaxWidth()
+                        .then(if (latest != null) Modifier.clickable { onOpen(latest.number) } else Modifier),
+                ) { DexTile(car, counts[car.id] ?: 0, Modifier.fillMaxSize()) }
+            }
         }
         Spacer(Modifier.height(16.dp))
+        Button(onClick = onClose, modifier = Modifier.height(60.dp).width(200.dp)) { Text("닫기", fontSize = 24.sp) }
+    }
+}
+
+/** 카링 도감. 만난 카링은 지금까지 자란 모습과 이름, 아직 못 만난 카링은 젤리 실루엣만 보여준다. */
+@Composable
+private fun CarlingDex(owned: List<Lineage>, stage: Int) {
+    Text("운전 습관에 따라 다른 카링이 태어나요. 만난 카링만 모습이 보이고, 나머지는 실루엣으로 남아 있어요.", fontSize = 17.sp, color = Muted, textAlign = TextAlign.Center)
+    Spacer(Modifier.height(12.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+        Lineage.entries.forEach { l ->
+            val met = l in owned
+            val look = if (met) stage.coerceAtLeast(GrowthRules.LINEAGE_STAGE) else GrowthRules.MAX_STAGE
+            val art = carlingArt(look, l)
+            val shape = RoundedCornerShape(18.dp)
+            Column(
+                Modifier.weight(1f)
+                    .background(if (met) Brush.verticalGradient(listOf(Color(l.color).copy(alpha = 0.35f), Panel)) else Brush.verticalGradient(listOf(PanelLight, Panel)), shape)
+                    .border(if (met) 2.dp else 1.dp, if (met) Color(l.color) else Accent.copy(alpha = 0.3f), shape)
+                    .padding(vertical = 12.dp, horizontal = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(Modifier.size(130.dp), contentAlignment = Alignment.Center) {
+                    androidx.compose.foundation.Image(
+                        androidx.compose.ui.res.painterResource(art.res),
+                        contentDescription = null,
+                        // 못 만난 카링은 반투명한 젤리 실루엣
+                        colorFilter = if (met) null else androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFF9FB4F2), androidx.compose.ui.graphics.BlendMode.SrcIn),
+                        modifier = Modifier.fillMaxSize().graphicsLayer {
+                            scaleX = if (art.mirrored) -1f else 1f
+                            alpha = if (met) 1f else 0.55f
+                        },
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(if (met) GrowthRules.stageName(look, l) else "???", fontSize = 18.sp, color = if (met) Ink else Muted, fontWeight = FontWeight.Bold, maxLines = 1)
+                Text("${l.label} 계열", fontSize = 14.sp, color = if (met) Color(l.color) else Muted)
+                if (!met) Text(l.condition, fontSize = 12.sp, color = Muted, textAlign = TextAlign.Center, maxLines = 2)
+            }
+        }
+    }
+}
+
+/** 트립카드 한 장 크게 보기. 저장 전이면 여기서 저장해 공개할 수 있다. */
+@Composable
+fun TripCardDetailDialog(card: TripCard, canSave: Boolean, xpIfSaved: Int, onSave: () -> Unit, onClose: () -> Unit) {
+    Scrim {
+        TripCardReveal(card, canSave, xpIfSaved, width = 320.dp, onSave = onSave)
+        Spacer(Modifier.height(12.dp))
+        Text("${card.date} ${card.startTime} · ${card.light.label} · 안전운전 ${card.safety?.let { "${it}점" } ?: "측정 안 됨"} · ${card.routeText}", fontSize = 17.sp, color = Muted, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(14.dp))
         Button(onClick = onClose, modifier = Modifier.height(60.dp).width(200.dp)) { Text("닫기", fontSize = 24.sp) }
     }
 }

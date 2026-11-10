@@ -6,6 +6,8 @@ import ai.pleos.playground.tts.constant.Mode
 import ai.pleos.playground.tts.listener.EventListener
 import ai.pleos.playground.tts.listener.OnInitializeListener
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import java.util.Locale
 
@@ -73,15 +75,20 @@ class Voice(context: Context) {
         }
     }
 
-    fun say(text: String) {
+    private val main = Handler(Looper.getMainLooper())
+
+    /** [delayMillis] 뒤에 말한다 (카링의 "뿅" 소리가 먼저 끝나도록). */
+    fun say(text: String, delayMillis: Long = 0) {
         if (!ready) {
             connect()
             return
         }
-        runCatching {
-            if (speaking) tts.stop()
-            tts.speak(text)
-        }.onFailure { Log.w(TAG, "음성 요청 실패", it) }
+        main.postDelayed({
+            runCatching {
+                if (speaking) tts.stop()
+                tts.speak(text)
+            }.onFailure { Log.w(TAG, "음성 요청 실패", it) }
+        }, delayMillis)
     }
 
     fun shutdown() {

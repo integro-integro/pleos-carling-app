@@ -3,8 +3,13 @@ package work.integro.carling.data
 import kotlinx.serialization.Serializable
 import work.integro.carling.game.CarlingItem
 import work.integro.carling.game.GrowthRules
+import work.integro.carling.game.CareIssue
+import work.integro.carling.game.Coupon
 import work.integro.carling.game.Light
 import work.integro.carling.game.Lineage
+import work.integro.carling.game.Vehicle
+import work.integro.carling.game.UsableItem
+import work.integro.carling.game.VEHICLE_PICK_STAGE
 import work.integro.carling.game.Region
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -39,29 +44,20 @@ data class CarlingData(
     /** 진행 중인 주행. 주행 도중 프로세스가 정리돼도 이어서 기록하기 위해 저장한다. */
     val activeTrip: ActiveTrip? = null,
 
-    // ---- 성장 엔진(v1): XP(성장 에너지) + MP(지도 포인트), 서로 환산하지 않음 ----
-    // 누적값 — 지난 날들에서 확정된 합계. 오늘치는 아래 집계로 더한다. 성장하면 새 단계 시작값을 넘는 만큼 버린다.
-    val totalXpPastDays: Int = 0,
-    val totalMpPastDays: Int = 0,
-    // 오늘 XP 집계 (날이 바뀌면 past로 접고 리셋)
+    // ---- 성장 엔진(규칙 v0.5): 트립카드를 저장해야 XP가 들어오고, 최소 운전일 + 누적 XP로 자란다 ----
+    /** 누적 XP. 단계에 도달해도 차감하지 않는다. */
+    val growthXp: Int = 0,
+    /** 운전일 — 저장한 트립카드가 1장 이상인 날(트립 날짜). 달력 날짜가 아니다. */
+    val drivingDays: Set<String> = emptySet(),
+    /** 교감 XP를 센 날. 날이 바뀌면 [intimacyActionsToday]를 비운다. */
     val xpDate: String? = null,
-    val tripsToday: Int = 0,
-    val safeTripsToday: Int = 0,
-    val fuelXpGiven: Boolean = false,
-    val intimacyActionsToday: Set<String> = emptySet(), // PET/FEED/PLAY/TALK
-    // 오늘 MP 집계
-    val mpDate: String? = null,
-    val mpTodayValue: Int = 0,
+    val intimacyActionsToday: Set<String> = emptySet(), // PET/FEED/PLAY
+    /** 저장 데이터의 성장 규칙 판. 5 미만이면 불러올 때 v0.5로 다시 계산한다. */
+    val growthVersion: Int = 0,
 
-    // 계열 — 성장 2(빠르면 D14)에 도달할 때 누적 점수로 결정하고 이후 바뀌지 않는다.
+    // 계열 — 아기 카링 2단계(15운전일)에 도달할 때 저장한 트립의 누적 점수로 결정하고 이후 바뀌지 않는다.
     val lineageScores: Map<Lineage, Float> = emptyMap(),
     val lineage: Lineage? = null,
-
-    // 진화카드 · 특별 퀘스트
-    val ownedCards: Set<Int> = emptySet(),    // 획득한 진화 단계(1/2/3)
-    val cardFails: Map<Int, Int> = emptyMap(), // 단계별 추첨 실패 누적
-    val cardDrawDate: String? = null,          // 오늘 이미 추첨했는지
-    val doneQuests: Set<Int> = emptySet(),     // 완료한 진화 퀘스트
 
     val reachedStage: Int = 0, // 마지막으로 계산된 단계 인덱스(0 = 아기)
     /** 변화 장면을 마지막으로 보여준 단계. null이면 아직 기준이 없어 장면 없이 현재 단계로 맞춘다. */
@@ -88,7 +84,15 @@ data class CarlingData(
 
     // 꾸미기·트립카드
     val equippedItem: CarlingItem? = null,
-    /** 가지고 있는 지역 특산물 개수. */
+    /** 모은 이동수단. 진화 2에 내 계열의 것을 받고, 진화 3에 하나를 더 골라 받는다. */
+    val ownedVehicles: Set<Vehicle> = emptySet(),
+    /** 지금 타고 있는 이동수단. null이면 내려 있다. */
+    val ridingVehicle: Vehicle? = null,
+    /** 진화 3의 '하나 골라 받기' 선물을 이미 썼는지. */
+    val vehiclePicked: Boolean = false,
+    /** 사용하기 — 모아 둔 간식 개수. 트립카드를 저장할 때 하나씩 받는다. */
+    val usables: Map<UsableItem, Int> = emptyMap(),
+    /** (구) 지역 특산물. 더 이상 쓰지 않는다. */
     val foods: Map<Region, Int> = emptyMap(),
     /** 지역별 마지막으로 특산물을 받은 날. 지역마다 하루 1개만 받는다. */
     val foodGiftDates: Map<Region, String> = emptyMap(),
@@ -103,24 +107,39 @@ data class CarlingData(
     /** 주차 후 아직 확인하지 않은 새 트립카드의 번호. */
     val pendingCard: Int? = null,
 
+    // 차량 돌봄
+    /** 지금 진행 중인 돌봄 퀘스트. */
+    val careQuests: Set<CareIssue> = emptySet(),
+    /** 마친 돌봄 퀘스트 수. */
+    val careDone: Int = 0,
+    /** 친밀도가 100을 넘어 쌓인 마음 포인트. [CareRules.GIFT_HEART]마다 정비 쿠폰을 선물한다. */
+    val heartPoints: Int = 0,
+    /** 받은 정비 쿠폰. */
+    val coupons: List<Coupon> = emptyList(),
+    /** 카링이 내밀고 있는 선물(아직 열어 보지 않음). */
+    val pendingGift: Coupon? = null,
+
     // 설정
     val voiceOn: Boolean = true,
-    val scene: Scene = Scene.CLEAR_SKY,
+    val scene: Scene = Scene.LAB,
 ) {
-    /** 오늘 쌓은 XP(상한 50은 항목별 상한으로 자연 충족). */
-    val xpToday: Int
-        get() = GrowthRules.driveXp(tripsToday, safeTripsToday) +
-            (if (fuelXpGiven) GrowthRules.FUEL_XP else 0) +
-            GrowthRules.intimacyXp(intimacyActionsToday.size)
+    val totalXp: Int get() = growthXp
 
-    val totalXp: Int get() = totalXpPastDays + xpToday
-    val totalMp: Int get() = totalMpPastDays + mpTodayValue
+    /** 운전일 수. */
+    val drivingDayCount: Int get() = drivingDays.size
 
+    /** 태어난 지 며칠째(달력 기준). 트립카드의 '함께한 지 N일째'에만 쓴다. */
     fun dayNumber(today: LocalDate): Int =
         birthDate?.let { ChronoUnit.DAYS.between(LocalDate.parse(it), today).toInt() + 1 } ?: 1
 
-    fun stageIndexOn(today: LocalDate): Int =
-        GrowthRules.stageIndex(dayNumber(today), totalXp, totalMp, ownedCards, doneQuests)
+    /** 지금 운전일과 누적 XP로 도달한 단계. */
+    fun computedStage(): Int = GrowthRules.stageIndex(drivingDayCount, growthXp)
+
+    /** 진화 3 선물로 이동수단 하나를 고를 수 있는지. */
+    val canPickVehicle: Boolean get() = reachedStage >= VEHICLE_PICK_STAGE && !vehiclePicked && ownedVehicles.size < Vehicle.entries.size
+
+    /** 지금까지 얻은 배경. 깨어나기 전에는 Dr.Pab의 심장 연구소뿐이다. */
+    fun ownedScenes(): List<Scene> = Scene.entries.filter { hatched && it.unlockStage <= reachedStage || it.unlockStage < 0 }
 
     /** 위치를 쓰도록 동의했지만 날씨 전송 안내를 아직 보지 못했는지. */
     val needsLocationReconsent: Boolean
@@ -135,13 +154,26 @@ const val CURRENT_LOCATION_CONSENT = 4
 /** 트립카드 화면에 보여주는 목적지 수. 내비의 최근 목적지와 같다. */
 const val RECENT_DESTINATIONS = 20
 
-/** 고를 수 있는 배경. 낮과 밤은 시계를 따른다. */
+/**
+ * 배경 스킨 8가지(서비스 시각화 V3 '카링의 하루를 담은 배경 스킨'). 아침·낮·노을·밤은 시계를 따른다.
+ * 처음에는 Dr.Pab의 심장 연구소에서 시작하고, 나머지는 깨어날 때와 성장·진화할 때 기념으로 하나씩 얻는다.
+ * @param unlockStage 이 단계에 도달하면 얻는다. 음수면 처음부터 있다.
+ */
 @Serializable
-enum class Scene(val label: String) {
-    CITY("도시"),
-    COAST("바닷가 해안"),
-    CLEAR_SKY("맑은 하늘"),
-    FOREST("고요한 숲"),
+enum class Scene(val label: String, val unlockStage: Int) {
+    LAB("Dr.Pab의 심장 연구소", -1),
+    ATTIC("트립카드 다락방", 0),
+    CITY("강변 도시 쉼터", 1),
+    COAST("등대 아래 작은 해변", 2),
+    FOREST("반딧불이 쉬는 숲", 3),
+    REST_STOP("길모퉁이 휴게소", 4),
+    CLEAR_SKY("구름 위 맑은 하늘", 5),
+    OBSERVATORY("별마중 천문대", 5);
+
+    companion object {
+        /** 이 단계에 도달하면서 새로 얻는 배경. */
+        fun unlockedAt(stage: Int): List<Scene> = entries.filter { it.unlockStage == stage }
+    }
 }
 
 /** 첫 만남 질문(구). */
@@ -192,7 +224,7 @@ fun List<TripCard>.recentDestinations(limit: Int = RECENT_DESTINATIONS): List<Re
 
 data class RecentDestination(val card: TripCard, val visits: Int)
 
-/** 트립 한 번이 남기는 카드. 저장 여부와 무관하게 자동으로 쌓이고, 원하는 카드만 저장한다. */
+/** 트립 한 번이 남기는 카드. 도착 후 24시간 안에 저장해야 XP·자동차·아이템을 받고, 저장하지 않으면 사라진다. */
 @Serializable
 data class TripCard(
     val number: Int,
@@ -211,11 +243,24 @@ data class TripCard(
     val placeCell: String? = null,
     /** 출발지·도착지가 처음 이어진 길인지. */
     val newRoute: Boolean = false,
-    val driveXpToday: Int = 0,
     val highlights: List<String> = emptyList(),
     val saved: Boolean = false,
-    val mpGained: Int = 0,
+    /** 저장해서 받은 XP. 그 운전일에 5장을 넘겨 저장했으면 0. */
+    val xpGained: Int = 0,
+    /** 급조작 수. 저장할 때 계열 점수에 쓴다. 모르면 null. */
+    val harshEvents: Int? = null,
+    /** 저장하는 순간 공개되는 앞면 자동차([work.integro.carling.game.CarCatalog]). 저장 전에는 null. */
+    val carModel: String? = null,
+    /** 출발지 이름(지난 트립의 도착지). 모르면 null. */
+    val startName: String? = null,
+    /** 저장하며 받은 간식. 사용하기에 담긴다. */
+    val itemReward: UsableItem? = null,
+    /** 카드 앞면에 별자리로 그릴 경로(약 24점으로 줄인 것). 위치를 쓰지 않았으면 비어 있다. */
+    val routeDots: List<GeoDot> = emptyList(),
 ) {
+    /** 도착 시각(어림). 저장 가능 시간(도착 후 24시간)을 잰다. */
+    val endMillis: Long get() = startMillis + minutes * 60_000L
+
     val title: String get() = placeName ?: if (newPlace == true) "처음 달린 길" else "함께 달린 길"
 
     /** 같은 목적지를 묶는 기준. 위치를 쓰지 않은 트립은 목적지를 몰라 묶지 않는다. */

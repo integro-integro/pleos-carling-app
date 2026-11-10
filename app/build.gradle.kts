@@ -86,3 +86,8 @@ tasks.register<Copy>("submissionApk") {
     into(rootProject.layout.projectDirectory.dir("apk"))
     rename { fileName.get() }
 }
+
+// 카링 목소리 샘플을 들어보려면: ./gradlew testDebugUnitTest -Pbabble.out=폴더
+tasks.withType<Test>().configureEach {
+    systemProperty("babble.out", (project.findProperty("babble.out") ?: "").toString())
+}

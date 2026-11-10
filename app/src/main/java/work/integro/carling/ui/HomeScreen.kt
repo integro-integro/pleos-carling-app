@@ -1,6 +1,10 @@
 package work.integro.carling.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.alpha
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import work.integro.carling.voice.Babble
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -41,13 +46,18 @@ import androidx.compose.ui.unit.sp
 import work.integro.carling.BuildConfig
 import work.integro.carling.data.CarlingData
 import work.integro.carling.data.CarlingStore
+import work.integro.carling.data.Scene
 import work.integro.carling.data.Personality
 import work.integro.carling.data.recentDestinations
 import work.integro.carling.game.DevSimulator
+import work.integro.carling.game.DayPart
+import work.integro.carling.game.CareIssue
 import work.integro.carling.game.GrowthRules
 import work.integro.carling.game.Light
 import work.integro.carling.game.Lineage
-import work.integro.carling.game.Region
+import work.integro.carling.game.Vehicle
+import work.integro.carling.game.VEHICLE_GIFT_STAGE
+import work.integro.carling.game.VEHICLE_PICK_STAGE
 import work.integro.carling.vehicle.VehicleState
 
 /** 계열이 정해졌으면 계열 색, 아니면 공통 하늘빛. */
@@ -65,17 +75,22 @@ fun HomeScreen(
     val compact = LocalCompact.current
     var greetedToday by remember { mutableStateOf(false) }
     var showTripCards by remember { mutableStateOf(false) }
+    var showDex by remember { mutableStateOf(false) }
+    var showCare by remember { mutableStateOf(false) }
     var openCard by remember { mutableStateOf<Int?>(null) }
     var showMap by remember { mutableStateOf(false) }
     var showScenes by remember { mutableStateOf(false) }
     var showItems by remember { mutableStateOf(false) }
-    var showFoods by remember { mutableStateOf(false) }
     var showTutorial by remember { mutableStateOf(false) }
     var justFed by remember { mutableStateOf(false) }
+    var playHint by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { greetedToday = store.greetIfNewDay() }
 
+    val careTop = data.careQuests.minByOrNull { it.priority }
     val line = when {
+        careTop != null -> careTop.line
         vehicle.isCharging || vehicle.chargePortOpen -> personality.mealLine
+        playHint -> "저를 누른 채 이리저리 끌어 주세요. 같이 놀아요!"
         justFed -> "냠냠, 고마워요! 배불러요."
         greetedToday -> "오늘도 만났네요! ${personality.greeting}"
         data.tripCount == 0 -> "멀리 가지 않아도 돼요. 매일 만나면 충분해요."
@@ -89,26 +104,31 @@ fun HomeScreen(
     LaunchedEffect(celebrated, data.reachedStage) {
         if (celebrated == null || celebrated > data.reachedStage) store.markStageCelebrated()
     }
-    val evolving = growing && GrowthRules.STAGES[data.reachedStage].kind == GrowthRules.Kind.EVOLUTION
+    // 성장·색 변화·진화 모두 같은 변화 장면을 쓴다(서비스 시각화 V3)
+    val evolving = growing
     // 트립카드 등 다른 창을 다 닫은 뒤에 재생한다. 주행 중에는 이 화면 자체가 없어 정차 후로 미뤄진다.
-    val noDialog = data.pendingCard == null && openCard == null && !showTripCards && !showMap && !showItems && !showFoods && !showScenes && !showTutorial
-    val growthNotice = growing && !evolving && noDialog
-    val lookStage = store.devLook?.first ?: if (growing && !growthNotice) celebrated else data.reachedStage
+    val noDialog = data.pendingCard == null && openCard == null && !showTripCards && !showDex && !showCare && !showMap && !showItems && !showScenes && !showTutorial
+    val lookStage = store.devLook?.first ?: if (growing) celebrated else data.reachedStage
     var cueId by remember { mutableIntStateOf(0) }
     var cue by remember { mutableStateOf<WanderCue?>(null) }
-    LaunchedEffect(growthNotice) {
-        if (growthNotice) cue = WanderCue(++cueId, null)
-    }
     val lookLineage = store.devLook?.second ?: data.lineage
+    // 카링 목소리(옹알이)는 보이는 모습의 단계·계열을 따르고, 음성 켜짐/꺼짐을 같이 쓴다
+    LaunchedEffect(lookStage, lookLineage, data.voiceOn) {
+        Babble.stage = lookStage
+        Babble.lineage = lookLineage
+        Babble.enabled = data.voiceOn
+    }
     val playground = @Composable { areaModifier: Modifier ->
         Wandering(
             size = carlingSize,
-            enabled = data.pendingCard == null && !showTripCards && openCard == null && !showMap && !showTutorial && !showScenes && !showItems && !showFoods && !(evolving && noDialog),
+            enabled = data.pendingCard == null && !showTripCards && !showDex && openCard == null && !showMap && !showTutorial && !showScenes && !showItems && !(evolving && noDialog),
             specials = GrowthRules.knownMoves(lookStage, lookLineage),
             cue = cue,
             personality = personality,
             tapLines = personality.tapLines,
             onPetted = store::pet,
+            onPlayed = { store.play(); playHint = false },
+            care = careTop,
             modifier = areaModifier,
         ) { napping ->
             Box(contentAlignment = Alignment.BottomEnd) {
@@ -120,6 +140,7 @@ fun HomeScreen(
                     mood = personality,
                     lineage = lookLineage,
                     asleep = napping,
+                    vehicle = data.ridingVehicle,
                 )
                 if (vehicle.chargePortOpen) Text("🍙", fontSize = 72.sp)
             }
@@ -133,48 +154,37 @@ fun HomeScreen(
         Spacer(Modifier.height(14.dp))
         Speech(line)
     }
-    val panel = @Composable {
-        StatusPanel(
+    var dockOpen by rememberSaveable { mutableStateOf(true) }
+
+    Box(Modifier.fillMaxSize()) {
+        // 배경을 가리지 않도록 상태는 왼쪽 위, 기능은 아래 독에 둔다
+        Column(
+            Modifier.fillMaxSize().padding(top = if (compact) 150.dp else 120.dp, bottom = if (dockOpen) 118.dp else 64.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            playground(Modifier.fillMaxWidth().weight(1f))
+            caption()
+        }
+        StatusHud(store, data, Modifier.align(Alignment.TopStart).padding(16.dp))
+        CareChip(data.careQuests, onClick = { showCare = true }, modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp))
+        FunctionDock(
             store = store,
             data = data,
+            open = dockOpen,
+            onToggle = { dockOpen = !dockOpen },
             onFeed = { store.feed(); justFed = true },
+            onPlay = { playHint = true },
             onTripCards = { showTripCards = true },
+            onDex = { showDex = true },
             onMap = { showMap = true },
             onScenes = { showScenes = true },
             onItems = { showItems = true },
-            onFoods = { showFoods = true },
             onLocationToggle = { allowed ->
                 store.setLocationConsent(allowed)
                 if (allowed) onLocationAllowed()
             },
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp, start = 16.dp, end = 16.dp),
         )
-    }
-
-    Box(Modifier.fillMaxSize()) {
-        if (compact) {
-            Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Spacer(Modifier.height(32.dp))
-                playground(Modifier.fillMaxWidth().height(carlingSize + 200.dp))
-                caption()
-                Spacer(Modifier.height(24.dp))
-                Box(Modifier.widthIn(max = 640.dp)) { panel() }
-            }
-        } else {
-            Row(Modifier.fillMaxSize().padding(32.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(
-                    Modifier.weight(1f).fillMaxHeight(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    playground(Modifier.fillMaxWidth().weight(1f))
-                    caption()
-                }
-                Spacer(Modifier.width(24.dp))
-                Box(Modifier.width(500.dp)) { panel() }
-            }
-        }
 
         // 도움말(튜토리얼) — 언제든 열어 다시 볼 수 있다
         Row(Modifier.align(Alignment.TopEnd).padding(12.dp)) {
@@ -186,16 +196,22 @@ fun HomeScreen(
             }
         }
 
-        if (BuildConfig.DEBUG) DevPanel(store, vehicle, Modifier.align(Alignment.TopStart).padding(12.dp))
+        if (BuildConfig.DEBUG) DevPanel(store, vehicle, Modifier.align(Alignment.TopEnd).padding(top = 60.dp, end = 12.dp))
 
         if (showTripCards) {
             TripCardsDialog(data.tripCards, onOpen = { openCard = it }, onClose = { showTripCards = false })
         }
+        if (showCare) CareQuestDialog(data.careQuests, data.intimacy, data.heartPoints, onClose = { showCare = false })
+        store.careNotice?.let { n -> key(n) { CareDoneNotice(n, onDone = { store.careNotice = null }) } }
+        if (noDialog && !growing) data.pendingGift?.let { GiftDialog(it, onClaim = store::claimGift) }
+        if (showDex) DexDialog(data.tripCards, data.lineage, data.reachedStage, onOpen = { openCard = it }, onClose = { showDex = false })
         data.pendingCard?.let { number ->
             data.tripCards.firstOrNull { it.number == number }?.let { card ->
                 NewTripCardDialog(
                     card = card,
-                    onOpen = { store.dismissTripCard(); openCard = number },
+                    canSave = store.canSave(card),
+                    xpIfSaved = store.saveXpFor(card),
+                    onSave = { store.saveTripCard(number) },
                     onClose = store::dismissTripCard,
                 )
             }
@@ -204,18 +220,23 @@ fun HomeScreen(
             data.tripCards.firstOrNull { it.number == number }?.let { card ->
                 TripCardDetailDialog(
                     card = card,
-                    mpIfSaved = store.saveMpFor(card),
-                    onToggleSaved = { store.toggleTripSaved(number) },
+                    canSave = store.canSave(card),
+                    xpIfSaved = store.saveXpFor(card),
+                    onSave = { store.saveTripCard(number) },
                     onClose = { openCard = null },
                 )
             }
         }
         if (showMap) CarlingMapScreen(data.mapRoutes, store.routeTracks, onClose = { showMap = false })
-        if (showFoods) {
-            FoodsDialog(data, onEat = { store.eatFood(it) }, onClose = { showFoods = false })
-        }
         if (showItems) {
-            ItemsDialog(data, personality, onSelect = store::equipItem, onClose = { showItems = false })
+            ItemsDialog(
+                data, personality,
+                onSelect = store::equipItem,
+                onRide = store::ride,
+                onPickVehicle = store::pickVehicle,
+                onUse = { if (store.useItem(it)) justFed = true },
+                onClose = { showItems = false },
+            )
         }
         if (!growing && GrowthRules.itemsUnlocked(data.reachedStage) && !data.itemIntroSeen && data.pendingCard == null && openCard == null) {
             ItemUnlockDialog(
@@ -225,7 +246,7 @@ fun HomeScreen(
                 onLater = store::markItemIntroSeen,
             )
         }
-        if (showScenes) ScenePickerDialog(data.scene, onSelect = store::setScene, onClose = { showScenes = false })
+        if (showScenes) ScenePickerDialog(data.scene, data.ownedScenes(), onSelect = store::setScene, onClose = { showScenes = false })
         if (showTutorial) TutorialDialog(onClose = { showTutorial = false })
         if (data.pendingMapNotice && noDialog && !growing) {
             MapNotice(
@@ -233,131 +254,160 @@ fun HomeScreen(
                 onDone = store::dismissMapNotice,
             )
         }
-        if (growthNotice) {
-            key(celebrated, data.reachedStage) {
-                GrowthNotice(data.reachedStage, data.lineage, onDone = store::markStageCelebrated)
+        if (evolving && noDialog) {
+            // 한 번에 여러 단계를 넘었으면 한 단계씩 보여준다
+            val to = (celebrated ?: data.reachedStage) + 1
+            key(celebrated, to) {
+                EvolutionOverlay(
+                    from = celebrated ?: 0,
+                    to = to,
+                    lineage = data.lineage,
+                    newScenes = Scene.unlockedAt(to).map { it.label },
+                    gift = when (to) {
+                        VEHICLE_GIFT_STAGE -> data.lineage?.let { "${Vehicle.of(it).label}를 선물로 받았어요! 아이템 › 타기에서 타 보세요." }
+                        VEHICLE_PICK_STAGE -> "이동수단 하나를 골라 받을 수 있어요! 아이템 › 타기"
+                        else -> null
+                    },
+                    onDone = {
+                        GrowthRules.learnedMove(to, data.lineage)?.let { cue = WanderCue(++cueId, it) }
+                        store.markStageCelebrated(to)
+                    },
+                )
             }
         }
-        if (evolving && noDialog) {
-            key(celebrated, data.reachedStage) {
-                EvolutionOverlay(celebrated, data.reachedStage, data.lineage, onDone = {
-                    GrowthRules.learnedMove(data.reachedStage, data.lineage)?.let { cue = WanderCue(++cueId, it) }
-                    store.markStageCelebrated()
-                })
+    }
+}
+
+/** 왼쪽 위의 작은 상태 표시. 단계·계열, 다음 모습까지의 운전일·XP, 친밀도·포만감을 한눈에 보여준다. */
+@Composable
+private fun StatusHud(store: CarlingStore, data: CarlingData, modifier: Modifier = Modifier) {
+    val cur = data.reachedStage
+    val next = if (cur < GrowthRules.MAX_STAGE) GrowthRules.STAGES[cur + 1] else null
+    val days = data.drivingDayCount
+    Column(
+        modifier
+            .widthIn(max = 460.dp)
+            .background(Color(0xB3060A24), RoundedCornerShape(22.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(22.dp))
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(GrowthRules.stageName(cur, data.lineage), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink)
+            Spacer(Modifier.width(10.dp))
+            data.lineage?.let { Text("${it.label} 계열", fontSize = 17.sp, color = Color(it.color), fontWeight = FontWeight.Medium) }
+                ?: Text("계열 미정", fontSize = 16.sp, color = Muted)
+            Spacer(Modifier.weight(1f))
+            next?.let { Text("다음: ${GrowthRules.stageName(it.index, data.lineage)}", fontSize = 15.sp, color = Muted) }
+        }
+        HudBar("🚗 운전일", if (next != null) "$days / ${next.drivingDays}" else "$days",
+            if (next != null) GrowthRules.stageProgress(days, data.stageSpec.drivingDays, next.drivingDays) else 1f, Color(0xFF6FB4FF))
+        HudBar("⚡ XP", if (next != null) "${data.totalXp} / ${next.cumXp}" else "${data.totalXp}",
+            if (next != null) GrowthRules.stageProgress(data.totalXp, data.stageSpec.cumXp, next.cumXp) else 1f, Color(0xFF7BDB6A))
+        HudBar("💗 친밀도", "${data.intimacy}", data.intimacy / 100f, Color(0xFFFF7FA8))
+        HudBar("🍙 포만감", "${data.fullness}", data.fullness / 100f, Color(0xFFFFC04D))
+        next?.let { n ->
+            val daysLeft = n.drivingDays - days
+            if (data.totalXp >= n.cumXp && daysLeft > 0) {
+                Text("경험치는 충분해! ${daysLeft}번만 더 같이 달리면 자랄 수 있어.", fontSize = 15.sp, color = Gold)
             }
         }
     }
 }
 
 @Composable
-private fun StatusPanel(
+private fun HudBar(label: String, value: String, progress: Float, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = 16.sp, color = Ink, modifier = Modifier.width(96.dp))
+        Box(Modifier.weight(1f).height(12.dp).background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(6.dp))) {
+            Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(12.dp).background(color, RoundedCornerShape(6.dp)))
+        }
+        Text(value, fontSize = 16.sp, color = Ink, textAlign = TextAlign.End, modifier = Modifier.width(110.dp))
+    }
+}
+
+/** 화면 아래의 기능 독. ▼로 접으면 작은 '메뉴' 단추만 남아 배경을 거의 가리지 않는다. */
+@Composable
+private fun FunctionDock(
     store: CarlingStore,
     data: CarlingData,
+    open: Boolean,
+    onToggle: () -> Unit,
     onFeed: () -> Unit,
+    onPlay: () -> Unit,
     onTripCards: () -> Unit,
+    onDex: () -> Unit,
     onMap: () -> Unit,
     onScenes: () -> Unit,
     onItems: () -> Unit,
-    onFoods: () -> Unit,
     onLocationToggle: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val today = store.clock.today()
-    val dayNum = data.dayNumber(today)
-    val cur = data.reachedStage
-    val next = if (cur < GrowthRules.MAX_STAGE) GrowthRules.STAGES[cur + 1] else null
+    val shape = RoundedCornerShape(26.dp)
+    if (!open) {
+        Box(
+            modifier
+                .background(Color(0xB3060A24), shape)
+                .border(1.dp, Color.White.copy(alpha = 0.15f), shape)
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 28.dp, vertical = 12.dp),
+        ) { Text("▲ 메뉴", fontSize = 19.sp, color = Ink, fontWeight = FontWeight.Medium) }
+        return
+    }
+    val canFeed = store.canFeedToday()
+    val itemsOpen = GrowthRules.itemsUnlocked(data.reachedStage)
+    val location = data.locationConsent == true
+    Row(
+        modifier
+            .background(Color(0xB3060A24), shape)
+            .border(1.dp, Color.White.copy(alpha = 0.15f), shape)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DockButton("🍙", if (canFeed) "밥 주기" else "배불러요", enabled = canFeed, onClick = onFeed)
+        DockButton("🎈", "놀아주기", onClick = onPlay)
+        DockButton("🃏", "트립카드", badge = data.tripCards.count { !it.saved && store.canSave(it) }.takeIf { it > 0 }, onClick = onTripCards)
+        DockButton("📖", "도감", onClick = onDex)
+        DockButton("🗺", "지도", onClick = onMap)
+        DockButton("🎁", "아이템", badge = if (data.canPickVehicle) 1 else data.usables.values.sum().takeIf { it > 0 }, selected = data.equippedItem != null || data.ridingVehicle != null, onClick = onItems)
+        DockButton("🖼", "배경", badge = data.ownedScenes().size, onClick = onScenes)
+        DockButton(if (location) "📍" else "📍", if (location) "위치 켜짐" else "위치 꺼짐", selected = location) { onLocationToggle(!location) }
+        Spacer(Modifier.width(6.dp))
+        DockButton("▼", "접기", onClick = onToggle)
+    }
+}
 
-    GameFrame(title = "카링 성장") {
-        Column {
-            // D일 · 단계 · 계열
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("D$dayNum", style = gameText(20.sp), color = Gold)
-                Spacer(Modifier.width(10.dp))
-                Text(GrowthRules.stageName(cur, data.lineage), style = gameText(20.sp))
-                Spacer(Modifier.weight(1f))
-                data.lineage?.let { Text("${it.label} 계열", style = gameText(19.sp), color = Color(it.color)) }
-                    ?: Text("계열 미정 (D14)", style = gameText(17.sp), color = Muted)
-            }
-            Spacer(Modifier.height(10.dp))
-            GameGauge(
-                icon = "⚡",
-                label = "XP",
-                value = if (next != null) "${data.totalXp} / ${next.cumXp}" else "${data.totalXp}",
-                progress = if (next != null) GrowthRules.stageProgress(data.totalXp, data.stageSpec.cumXp, next.cumXp) else 1f,
-                fill = listOf(Color(0xFFB6F28A), Color(0xFF4DBB5E)),
+@Composable
+private fun DockButton(
+    icon: String,
+    label: String,
+    enabled: Boolean = true,
+    badge: Int? = null,
+    selected: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .padding(horizontal = 3.dp)
+            .width(92.dp)
+            .background(if (selected) Gold.copy(alpha = 0.22f) else Color.Transparent, RoundedCornerShape(18.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.alpha(if (enabled) 1f else 0.45f)) {
+            Text(icon, fontSize = 32.sp)
+            Text(label, fontSize = 15.sp, color = Ink, maxLines = 1)
+        }
+        if (badge != null && badge > 0) {
+            Text(
+                "$badge",
+                fontSize = 13.sp,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.TopEnd).padding(end = 10.dp).background(Color(0xFFE5507E), RoundedCornerShape(50)).padding(horizontal = 7.dp, vertical = 1.dp),
             )
-            Spacer(Modifier.height(6.dp))
-            GameGauge(
-                icon = "🗺",
-                label = "MP",
-                value = if (next != null) "${data.totalMp} / ${next.cumMp}" else "${data.totalMp}",
-                progress = if (next != null) GrowthRules.stageProgress(data.totalMp, data.stageSpec.cumMp, next.cumMp) else 1f,
-                fill = listOf(Color(0xFF9BD0FF), Color(0xFF3B82E6)),
-            )
-            Spacer(Modifier.height(8.dp))
-            next?.let { n ->
-                val evo = n.evoIndex?.let { GrowthRules.EVOLUTIONS[it] }
-                val extra = if (n.evoIndex != null) {
-                    val card = if (n.evoIndex in data.ownedCards) "진화카드✓" else "진화카드?"
-                    val quest = if (n.evoIndex in data.doneQuests) "퀘스트✓" else "퀘스트"
-                    " · $card · $quest"
-                } else ""
-                Text("다음 ${GrowthRules.stageName(n.index, data.lineage)}: D${n.day} · XP ${n.cumXp} · MP ${n.cumMp}$extra",
-                    fontSize = 16.sp, color = Muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                if (!GrowthRules.itemsUnlocked(data.reachedStage)) {
-                    Text("🔒 성장 1이 되면 아이템이 열려요", fontSize = 16.sp, color = Gold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                }
-                // 진화 퀘스트 — 조건 충족 시 완료 버튼
-                if (n.evoIndex != null && n.evoIndex in data.ownedCards && n.evoIndex !in data.doneQuests) {
-                    Spacer(Modifier.height(8.dp))
-                    val can = store.canCompleteQuest(n.evoIndex)
-                    GameButton(
-                        text = if (can) "진화 퀘스트 완료" else "트립 ${store.savedTripCount()}/${evo?.memoriesNeeded ?: 1}장 저장 필요",
-                        icon = "✨",
-                        top = Color(0xFFB08CFF), bottom = Color(0xFF7B52D6),
-                        enabled = can,
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = { store.completeQuest(n.evoIndex) },
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(14.dp))
-            GameGauge("💗", "친밀도", "${data.intimacy}", data.intimacy / 100f, listOf(Color(0xFFFFA3C4), Color(0xFFE5507E)))
-            Spacer(Modifier.height(6.dp))
-            GameGauge("🍙", "포만감", "${data.fullness}", data.fullness / 100f, listOf(Color(0xFFFFE08A), Color(0xFFF0A030)))
-
-            Spacer(Modifier.height(14.dp))
-            val canFeed = store.canFeedToday()
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                GameButton(
-                    text = if (canFeed) "밥 주기 (+5 XP)" else "오늘은 배불러요",
-                    icon = "🍙",
-                    top = Color(0xFFFFB648), bottom = Color(0xFFE07A12),
-                    enabled = canFeed,
-                    modifier = Modifier.weight(2.4f),
-                    onClick = onFeed,
-                )
-                GameSlot("🍊", "특산물", enabled = true, badge = data.foods.values.sum(), modifier = Modifier.weight(1f), onClick = onFoods)
-            }
-            Spacer(Modifier.height(10.dp))
-            // 교감 — 놀아주기 / 말 걸기 (친밀도 XP)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                GameSlot("🎈", "놀아주기", enabled = "PLAY" !in data.intimacyActionsToday, modifier = Modifier.weight(1f)) { store.interact("PLAY") }
-                GameSlot("💬", "말 걸기", enabled = "TALK" !in data.intimacyActionsToday, modifier = Modifier.weight(1f)) { store.interact("TALK") }
-                GameSlot("🖼", "배경", enabled = true, modifier = Modifier.weight(1f), onClick = onScenes)
-            }
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                GameSlot("🃏", "트립카드", enabled = true, badge = data.tripCards.recentDestinations().size, modifier = Modifier.weight(1.2f), onClick = onTripCards)
-                GameSlot("🗺", "지도", enabled = true, modifier = Modifier.weight(1f), onClick = onMap)
-                val itemsOpen = GrowthRules.itemsUnlocked(data.reachedStage)
-                GameSlot(if (itemsOpen) "🎁" else "🔒", "아이템", enabled = itemsOpen, selected = data.equippedItem != null, modifier = Modifier.weight(1f), onClick = onItems)
-                Column(Modifier.weight(1.2f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("📍 위치", style = gameText(17.sp))
-                    Spacer(Modifier.height(6.dp))
-                    GameToggle(checked = data.locationConsent == true, onChange = onLocationToggle)
-                }
-            }
         }
     }
 }
@@ -367,22 +417,23 @@ private fun StatusPanel(
  * ⚠ 기능을 추가·변경하면 여기 항목도 함께 업데이트할 것.
  */
 private val tutorialSections: List<Triple<String, String, String>> = listOf(
-    Triple("🥚", "첫 만남", "알은 모두에게 하나, 고르지 않아요. 첫 운전을 마치면 알을 네 번 눌러 깨우고, 이름을 지어주면 나만의 카링이 돼요."),
-    Triple("🚗", "함께 달리기", "운전을 마칠 때마다 트립카드 한 장이 생겨요. 거리가 아니라 '함께한 횟수'로 자라요."),
-    Triple("🃏", "우리의 트립카드", "트립은 자동으로 쌓여요. 목적지별 최근 20곳을 보여주고, 같은 곳을 다시 가면 맨 위로 올라와요. 모든 트립은 Drive Log에 남아요."),
-    Triple("⚡", "성장 에너지 (XP)", "트립·안전운전·연료 보충·교감으로 하루 최대 50. 180일 동안 성장 6번 + 진화 3번을 거쳐요."),
-    Triple("⭐", "지도 포인트 (MP)", "트립카드를 저장하면 받아요. 새 길 +3, 익숙한 길 +1 (운행일마다 2장까지). 저장은 그보다 많이 해도 돼요."),
-    Triple("🗺", "지도", "처음엔 비어 있어요. 운전을 마칠 때마다 달린 길이 선으로 켜지고, 경로를 기록하지 못한 곳은 도착지에 불빛으로 보여요. 자주 달릴수록 밝아지고, 확대하면 경로를 자세히 볼 수 있어요. 위치 사용이 켜져 있어야 해요."),
+    Triple("🥚", "첫 만남", "알은 모두에게 하나, 고르지 않아요. 첫 운전을 마치고 트립카드를 저장한 뒤 알을 네 번 두드려 깨우고, 이름을 지어주면 나만의 카링이 돼요."),
+    Triple("🚗", "함께 달리기", "3분 이상 달릴 때마다 트립카드 한 장이 생겨요. 달리는 동안 카링은 화면 구석에서 은은하게 빛날 뿐이에요."),
+    Triple("🃏", "트립카드 저장", "운전을 마치면 도착지·날짜·달린 길이 별자리로 그려진 트립카드가 나와요. 저장하지 않은 카드는 24시간 뒤 사라져요. 도착 후 24시간 안에 저장하면 아래 보상 칸이 뒤집혀 자동차와 아이템이 나오고 '저장 완료' 도장이 찍혀요. 저장한 카드 1장에 +10 XP, 안전 점수 95점 이상이면 +3 XP (하루 5장까지). 저장한 카드가 있는 날이 '운전일'이 돼요."),
+    Triple("📖", "도감", "트립카드를 저장하면 앞면의 자동차가 도감에 모여요. 1975년 포니부터 지금의 현대·기아·제네시스, 미래 콘셉트카까지 100대이고, 일반·레어·에픽·전설 희귀도가 있어요. 카링 탭에는 만난 카링이 모이고, 아직 못 만난 카링은 실루엣으로 보여요."),
+    Triple("⚡", "성장 에너지 (XP)", "트립카드 저장과 교감(쓰다듬기·밥 주기·놀아주기 각 하루 1회 +2)으로 하루 최대 71. XP는 자라도 줄지 않아요."),
+    Triple("🌱", "자라는 방법", "최소 운전일과 누적 XP를 둘 다 채우면 다음 모습이 열려요. 7운전일 175 XP · 15운전일 375 XP · 30운전일 750 XP · 60운전일 1,500 XP · 90운전일 2,250 XP. 많이 달려도 운전일보다 빨리 자라지는 않고, 쉬어도 퇴화하지 않아요."),
+    Triple("🎨", "계열", "처음엔 진주색 아기 카링이에요. 15운전일에 저장한 트립의 운전 습관으로 계열(바람·빛·나무·물·흙)이 정해져 색이 입혀지고, 한 번 정해지면 바뀌지 않아요."),
+    Triple("✨", "진화", "30·60·90운전일에 세 번 진화해요. 바람은 산들링→날개링→하늘링, 빛은 반짝링→햇살링→태양링, 나무는 새싹링→잎새링→숲결링, 물은 물결링→파도링→바다링, 흙은 모래링→소호링→구미링이 돼요. 자랄 때마다 변화 장면과 축하 카드가 나와요."),
+    Triple("🖼", "배경", "Dr.Pab의 심장 연구소에서 시작해요. 알이 깨어날 때와 자랄 때마다 새 배경을 하나씩 얻어 모두 8곳을 모을 수 있어요. 아침·낮·노을·밤은 차량 시계에 맞춰 저절로 바뀌어요."),
+    Triple("🗺", "지도", "대한민국 지도가 안개로 덮여 있고, 함께 달린 길 주변 1km씩 밝혀져요. 처음엔 전국만 보이지만 다닌 시·도, 시군구, 동마다 필터가 생겨 눌러서 들어가 볼 수 있어요. 지역마다 밝혀진 땅이 몇 %인지 알려줘요. 위치 사용이 켜져 있어야 해요."),
     Triple("🌤", "날씨 인사", "날짜가 바뀐 뒤 첫 운전 때 말을 걸어요. 오전에는 오늘 예보를, 오후에는 지금 날씨를 알려줘요. 위치 사용이 켜져 있어야 해요."),
-    Triple("🔊", "음성", "주행을 시작하거나 마칠 때 짧게 말을 걸어요. 화면 오른쪽 위에서 언제든 끌 수 있어요."),
-    Triple("🖼", "배경", "알이 깨어나면 도시·바닷가 해안·맑은 하늘·고요한 숲 중에서 고를 수 있어요. 낮과 밤은 차량 시계에 맞춰 저절로 바뀌어요."),
-    Triple("🎁", "아이템", "성장 1이 되면 열려요. 선글라스·목걸이·신발 등 10가지 중 하나를 골라 카링을 꾸며 보세요."),
-    Triple("🍊", "지역 특산물", "제주도·강원도·부산·대구·전주를 방문하면 특산물을 받아요(지역마다 하루 1개, 위치 사용 필요). 배고플 때 먹이면 경험치가 더 많이 올라요."),
-    Triple("🌱", "게이지", "XP와 MP 숫자는 누적으로 보여요. 성장·진화하면 게이지가 모두 비워지고, 다음 단계까지 새로 채워요. 넘친 XP와 MP는 이어지지 않아요."),
-    Triple("🎨", "계열", "처음엔 진주색 아기 키링이에요. 성장 2(빠르면 D14)가 되면 운전 습관에 따라 계열(바람·빛·나무·물·흙)이 정해지고, 몸 색과 외형이 바뀌어요. 한 번 정해진 계열은 바뀌지 않아요."),
-    Triple("🏷", "이름", "자랄 때마다 이름이 바뀌어요. 바람 계열이면 산들링, 나래링을 거쳐 하늘링 완전체가 돼요. 빛은 섬광링, 나무는 우듬지링, 물은 바다링, 흙은 질주링이 마지막 모습이에요."),
-    Triple("✨", "진화", "D30·D90·D180부터, XP와 MP에 진화카드와 특별 퀘스트까지 갖추면 진화해요. 진화카드는 D20·D80·D170부터 운전한 날 추첨해 늦어도 6번째에 받고, 퀘스트는 트립카드를 1·3·5장 저장하면 완료할 수 있어요. 단계는 건너뛰지 않고, 성장할 때는 알림과 함께 '짠' 하고 바뀌고, 진화할 때는 변신 장면과 함께 새로운 동작을 배워요."),
-    Triple("💗", "돌보기", "쓰다듬기·밥 주기·놀아주기·말 걸기로 교감해요 (하루 서로 다른 2가지 행동까지 XP)."),
+    Triple("🔊", "음성", "카링이 말할 때 \"뾰로롱\" 옹알이 목소리가 나요. 어릴수록 높고, 계열마다 음색이 달라요. 주행을 시작하거나 마칠 때는 \"뿅\" 하고 또렷하게 말을 걸어요. 화면 오른쪽 위에서 언제든 끌 수 있어요."),
+    Triple("🎁", "아이템 · 꾸미기", "7운전일에 자라면 열려요. 리본·왕관·꽃 화관·하트 선글라스 등 10가지 젤리 아이템 중 하나로 카링을 꾸며 보세요. 진화한 모습에도 머리에 맞춰 보여요."),
+    Triple("🚗", "아이템 · 타기", "이동수단을 모아 탈 수 있어요. 진화 2에 내 계열의 이동수단을 선물로 받고, 진화 3에 하나를 더 골라 받아요. 다시 누르면 내려요."),
+    Triple("🍙", "아이템 · 사용하기", "트립카드를 저장할 때마다 간식(주먹밥·쿠키·딸기우유·푸딩·무지개 젤리)을 하나씩 받아 사용하기에 모여요. 먹이면 배가 부르고, 그날 첫 밥이면 +2 XP예요."),
+    Triple("💗", "돌보기", "주차 중에만 교감할 수 있어요. 쓰다듬기(톡 터치)·밥 주기·놀아주기(카링을 누른 채 끌기)를 각각 하루 한 번 하면 +2 XP씩 받아요. 끌어서 옮기는 건 언제든 할 수 있어요. 카링은 진짜 젤리처럼 말랑해서, 누르면 콕 들어갔다 튕기고 끌거나 뛰면 몸이 출렁여요."),
+    Triple("🛠", "차량 돌봄", "차가 아프면 카링도 아파요. 타이어 공기압이 빠지면 절뚝거리고, 연료가 부족하면 배고파하고, 엔진오일에 문제가 생기면 아파해요. 화면 위 경고를 누르면 돌봄 퀘스트가 보이고, 차를 고치면 차량 신호로 자동 완료돼 친밀도가 올라요. 친밀도가 가득 찬 뒤 쌓인 마음 포인트로 카링이 정비 쿠폰을 선물해요(시연용 · 블루핸즈 제휴 예정)."),
     Triple("↩", "되돌아가기", "첫 만남 중에는 화면 왼쪽 위 '뒤로'로 이전 단계를 다시 볼 수 있어요."),
 )
 
@@ -447,9 +498,8 @@ private fun DevPanel(store: CarlingStore, vehicle: VehicleState, modifier: Modif
         ) {
             val d = store.data
             DebugLine("단계", "${GrowthRules.stageName(d.reachedStage, d.lineage)} · ${d.stageSpec.label} (idx ${d.reachedStage})")
-            DebugLine("누적", "XP ${d.totalXp} · MP ${d.totalMp}")
+            DebugLine("누적", "운전일 ${d.drivingDayCount} · XP ${d.totalXp}")
             DebugLine("계열", d.lineage?.label ?: "미정")
-            DebugLine("카드/퀘스트", "${d.ownedCards} / ${d.doneQuests}")
             DebugLine("게임 날짜", "${store.clock.today()} (D${d.dayNumber(store.clock.today())})")
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Lineage.entries.forEach { l ->
@@ -459,15 +509,18 @@ private fun DevPanel(store: CarlingStore, vehicle: VehicleState, modifier: Modif
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(onClick = { simulator.simulateDays(1, lineage) }) { Text("+1일") }
                 OutlinedButton(onClick = { simulator.simulateDays(7, lineage) }) { Text("+7일") }
+                OutlinedButton(onClick = { simulator.advanceToStage(1, lineage) }) { Text("성장까지") }
+                OutlinedButton(onClick = { simulator.advanceToStage(2, lineage) }) { Text("2단계까지") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OutlinedButton(onClick = { simulator.advanceToStage(3, lineage) }) { Text("진화1까지") }
+                OutlinedButton(onClick = { simulator.advanceToStage(4, lineage) }) { Text("진화2까지") }
+                OutlinedButton(onClick = { simulator.advanceToStage(5, lineage) }) { Text("완성형까지") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(onClick = { simulator.advanceToStage(6, lineage) }) { Text("진화2까지") }
-                OutlinedButton(onClick = { simulator.advanceToStage(9, lineage) }) { Text("완성형까지") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf<Pair<String, Float?>>("실제 시각" to null, "낮" to 0f, "노을" to 0.5f, "밤" to 1f).forEach { (label, value) ->
-                    FilterChip(selected = store.devNightness == value, onClick = { store.devNightness = value }, label = { Text(label) })
+                FilterChip(selected = store.devDayPart == null, onClick = { store.devDayPart = null }, label = { Text("실제 시각") })
+                DayPart.entries.forEach { part ->
+                    FilterChip(selected = store.devDayPart == part, onClick = { store.devDayPart = part }, label = { Text(part.label) })
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -487,11 +540,17 @@ private fun DevPanel(store: CarlingStore, vehicle: VehicleState, modifier: Modif
                 OutlinedButton(onClick = store::devRestartFromD1) { Text("D1부터") }
                 OutlinedButton(onClick = store::reset) { Text("알부터") }
             }
-            OutlinedButton(onClick = store::devReplayStageChange) { Text("변화 장면 다시 보기") }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Region.entries.forEach { r ->
-                    OutlinedButton(onClick = { store.devGiveFood(r) }) { Text(r.foodIcon) }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(onClick = store::devReplayStageChange) { Text("변화 장면 다시 보기") }
+                OutlinedButton(onClick = store::devGrantVehicles) { Text("이동수단 모두") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                CareIssue.entries.forEach { c ->
+                    FilterChip(selected = c in store.devCare, onClick = { store.devToggleCare(c) }, label = { Text("${c.icon} ${c.chip}") })
                 }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                OutlinedButton(onClick = store::devGiveItems) { Text("간식 받기") }
                 OutlinedButton(onClick = store::devMakeHungry) { Text("배고픔") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

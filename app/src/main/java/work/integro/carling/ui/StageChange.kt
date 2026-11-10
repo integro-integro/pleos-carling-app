@@ -50,7 +50,11 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.random.Random
 
-private const val EVOLUTION_MS = 6_400
+/** 성장 연출 길이(빛 모으기 → 실루엣 → 반짝 → 새 모습). 끝나면 축하 카드가 잠시 남는다. */
+private const val EVOLUTION_MS = 4_400
+
+/** 축하 카드가 남아 있는 시간(ms). 누르면 바로 닫힌다. */
+private const val CARD_HOLD_MS = 5_000L
 
 /** 성장 알림이 떠 있는 시간(ms). */
 private const val GROWTH_NOTICE_MS = 2_800L
@@ -88,18 +92,19 @@ fun GrowthNotice(to: Int, lineage: Lineage?, onDone: () -> Unit) {
 }
 
 /**
- * 진화 장면. 화면을 누르면 바로 끝난다.
+ * 성장·색 변화·진화에 공통으로 쓰는 변화 장면(서비스 시각화 V3, 약 4초). 화면을 누르면 바로 끝난다.
  * 모으기(옛 모습과 새 모습의 실루엣이 번갈아 나타나고 빛줄기가 돎) → 번쩍 → 새 모습 등장 →
- * 이름과 새로 배운 동작 표시 순서로 진행한다.
+ * 축하 카드(새 이름, 바뀐 이유, 새로 배운 동작, 새 배경) 순서로 진행한다.
  */
 @Composable
-fun EvolutionOverlay(from: Int, to: Int, lineage: Lineage?, onDone: () -> Unit) {
+fun EvolutionOverlay(from: Int, to: Int, lineage: Lineage?, newScenes: List<String> = emptyList(), gift: String? = null, onDone: () -> Unit) {
     val oldArt = carlingArt(from, lineage)
     val newArt = carlingArt(to, lineage)
     val glow = lineage?.let { Color(it.color) } ?: HeartGlow
     val progress = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
         progress.animateTo(1f, tween(EVOLUTION_MS, easing = LinearEasing))
+        delay(CARD_HOLD_MS)
         onDone()
     }
 
@@ -110,7 +115,23 @@ fun EvolutionOverlay(from: Int, to: Int, lineage: Lineage?, onDone: () -> Unit) 
     val charge = (p / chargeEnd).coerceIn(0f, 1f)
     val flash = ((p - chargeEnd) / (flashEnd - chargeEnd)).coerceIn(0f, 1f)
     val reveal = ((p - flashEnd) / (revealEnd - flashEnd)).coerceIn(0f, 1f)
-    val caption = ((p - revealEnd) / 0.07f).coerceIn(0f, 1f)
+    val caption = ((p - revealEnd) / 0.1f).coerceIn(0f, 1f)
+    val spec = GrowthRules.STAGES[to.coerceIn(0, GrowthRules.MAX_STAGE)]
+    val name = GrowthRules.stageName(to, lineage)
+    val headline = when (spec.kind) {
+        GrowthRules.Kind.EVOLUTION -> if (to == GrowthRules.MAX_STAGE) "${name}, 완성형이 되었어!" else "${name}으로 진화했어!"
+        GrowthRules.Kind.COLOR -> "${lineage?.label ?: "바람"} 계열 색이 입혀졌어!"
+        else -> "몸이 한 단계 커졌어!"
+    }
+    val reason = when (spec.kind) {
+        GrowthRules.Kind.EVOLUTION, GrowthRules.Kind.COLOR -> lineage?.reason
+        else -> "일주일 동안 같이 달려 줘서 고마워."
+    }
+    val banner = when (spec.kind) {
+        GrowthRules.Kind.EVOLUTION -> "진화 알림"
+        GrowthRules.Kind.COLOR -> "색 변화 알림"
+        else -> "성장 알림"
+    }
     val revealed = flash >= 0.5f
     // 진화는 끝으로 갈수록 빠르게 옛 모습과 새 모습을 오간다
     val flickerToNew = charge > 0.4f && sin(charge * charge * 70f) > 0f
@@ -160,13 +181,30 @@ fun EvolutionOverlay(from: Int, to: Int, lineage: Lineage?, onDone: () -> Unit) 
                 }
             }
             Spacer(Modifier.height(10.dp))
-            Column(Modifier.alpha(caption), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(if (to == GrowthRules.MAX_STAGE) "완전체가 되었어요!" else "진화했어요!", fontSize = 28.sp, color = Ink)
-                Spacer(Modifier.height(4.dp))
-                Text(GrowthRules.stageName(to, lineage), fontSize = 44.sp, fontWeight = FontWeight.Bold, color = Gold)
+            Column(
+                Modifier
+                    .alpha(caption)
+                    .background(Night, RoundedCornerShape(28.dp))
+                    .border(2.dp, glow.copy(alpha = 0.7f), RoundedCornerShape(28.dp))
+                    .padding(horizontal = 36.dp, vertical = 18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(headline, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Gold)
+                reason?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(it, fontSize = 22.sp, color = Ink)
+                }
                 GrowthRules.learnedMove(to, lineage)?.let { move ->
                     Spacer(Modifier.height(6.dp))
-                    Text("✨ 새로운 동작을 배웠어요: ${move.label}", fontSize = 24.sp, color = Ink)
+                    Text("✨ 새로운 동작을 배웠어요: ${move.label}", fontSize = 22.sp, color = Ink)
+                }
+                gift?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text("🚗 $it", fontSize = 22.sp, color = Ink)
+                }
+                if (newScenes.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("🖼 새 배경을 얻었어요: ${newScenes.joinToString(", ")}", fontSize = 22.sp, color = Ink)
                 }
             }
         }
@@ -182,7 +220,7 @@ fun EvolutionOverlay(from: Int, to: Int, lineage: Lineage?, onDone: () -> Unit) 
         ) {
             Text("🌟", fontSize = 28.sp)
             Spacer(Modifier.width(10.dp))
-            Text("진화 알림", fontSize = 24.sp, color = Gold, fontWeight = FontWeight.Bold)
+            Text(banner, fontSize = 24.sp, color = Gold, fontWeight = FontWeight.Bold)
         }
         // 번쩍
         val white = sin(flash * PI.toFloat())

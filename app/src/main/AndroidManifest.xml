@@ -9,6 +9,11 @@
     <uses-permission android:name="pleos.car.permission.CAR_DRIVE" />
     <!-- Vehicle SDK: 충전구·배터리(EvBattery) 조회 -->
     <uses-permission android:name="pleos.car.permission.CAR_ENERGY" />
+    <!-- 차량 돌봄: 타이어 공기압 · 엔진오일 상태 -->
+    <uses-permission android:name="pleos.car.permission.CAR_SAFETY" />
+    <uses-permission android:name="pleos.car.permission.CAR_INFO" />
+    <!-- 바퀴별 공기압 값은 PRIVATE_CAR_SAFETY가 필요하다(일반 앱에 허용되는지 확인 중) -->
+    <uses-permission android:name="pleos.car.permission.PRIVATE_CAR_SAFETY" />
     <!-- NaviHelper SDK: 현재 위치·목적지 정보 조회 (get*Info) -->
     <uses-permission android:name="pleos.car.permission.NAVI_ROUTE" />
     <!-- FusedLocation SDK: 달린 경로 기록. 런타임 권한 -->

@@ -5,6 +5,7 @@ import androidx.compose.ui.geometry.Offset
 import work.integro.carling.R
 import work.integro.carling.game.CarlingItem
 import work.integro.carling.game.Lineage
+import work.integro.carling.game.Vehicle
 
 /**
  * 단계별 일러스트. 위치 값은 그림 한 변을 1로 본 비율이다.
@@ -30,96 +31,104 @@ internal data class CarlingArt(
     val eyeGap: Float = 0f,
 )
 
-internal val EggArt = CarlingArt(R.drawable.carling_egg, 1f, Offset(0.499f, 0.604f), 0.17f, Offset(0.5f, 0.81f))
+internal val EggArt = CarlingArt(R.drawable.carling_egg, 0.82f, Offset(0.500f, 0.541f), 0.2f, Offset(0.5f, 0.94f))
 
-/** 계열이 정해지기 전(아기, 성장 1)의 진주색 일러스트. 모든 계열이 같다. */
-private val PearlArts = listOf(
-    CarlingArt(R.drawable.carling_stage0, 0.94f, Offset(0.488f, 0.679f), 0.13f, Offset(0.5f, 0.83f), Offset(0.5f, 0.55f), 0.28f, eyes = Offset(0.488f, 0.520f), eyeGap = 0.088f),
-    CarlingArt(R.drawable.carling_stage1, 0.98f, Offset(0.488f, 0.668f), 0.13f, Offset(0.5f, 0.83f), Offset(0.5f, 0.54f), 0.295f, eyes = Offset(0.491f, 0.508f), eyeGap = 0.091f),
-)
+/*
+ * 서비스 시각화 V3의 최종 캐릭터(개별 원본 22장, 2026-11-06 전달).
+ * 그림은 768×768, 아래쪽 5%를 비우고 바닥에 맞춰 놓았다.
+ * 단계 인덱스는 [GrowthRules.STAGES]를 따른다.
+ */
 
-/** 계열이 정해진 뒤(성장 2부터)의 바람 계열 일러스트. */
+/** 아기 몸 위에 모자를 얹는 기준: 두 눈 가운데에서 조금 아래, 반지름은 눈 간격에 비례한다. */
+private fun jelly(res: Int, scale: Float, heart: Offset, heartR: Float, footX: Float, eyes: Offset, gap: Float) =
+    CarlingArt(res, scale, heart, heartR, Offset(footX, 0.94f), Offset(eyes.x, eyes.y + 0.05f), gap * 2.4f, eyes = eyes, eyeGap = gap)
+
+/** 일어선 모습(진화 2·3). 머리가 몸보다 작아 머리 반지름을 눈 간격으로 어림한다. */
+private fun standing(res: Int, scale: Float, heart: Offset, heartR: Float, footX: Float, eyes: Offset, gap: Float) =
+    CarlingArt(res, scale, heart, heartR, Offset(footX, 0.94f), Offset(eyes.x, eyes.y + 0.03f), gap * 2.3f, eyes = eyes, eyeGap = gap)
+
+/** 계열이 정해지기 전(아기 카링 1단계·성장)의 진주색 모습. 성장하면 같은 그림이 조금 커진다. */
+private val PearlBaby = jelly(R.drawable.carling_baby, 0.8f, Offset(0.490f, 0.728f), 0.15f, 0.49f, Offset(0.484f, 0.466f), 0.137f)
+private val PearlArts = listOf(PearlBaby, PearlBaby.copy(scale = 0.9f))
+
 private val WindArts = listOf(
-    CarlingArt(R.drawable.carling_stage2, 1f, Offset(0.495f, 0.64f), 0.13f, Offset(0.5f, 0.81f), Offset(0.5f, 0.49f), 0.28f, eyes = Offset(0.493f, 0.470f), eyeGap = 0.089f),
-    CarlingArt(R.drawable.carling_stage3, 1.02f, Offset(0.49f, 0.68f), 0.14f, Offset(0.49f, 0.86f), Offset(0.49f, 0.51f), 0.31f, eyes = Offset(0.489f, 0.484f), eyeGap = 0.106f),
-    CarlingArt(R.drawable.carling_stage4, 1.04f, Offset(0.46f, 0.65f), 0.14f, Offset(0.47f, 0.84f), Offset(0.48f, 0.51f), 0.29f, eyes = Offset(0.468f, 0.467f), eyeGap = 0.091f),
-    CarlingArt(R.drawable.carling_stage5, 1.06f, Offset(0.45f, 0.65f), 0.12f, Offset(0.46f, 0.81f), Offset(0.46f, 0.53f), 0.26f, eyes = Offset(0.450f, 0.500f), eyeGap = 0.082f),
-    CarlingArt(R.drawable.carling_stage6, 1.08f, Offset(0.32f, 0.7f), 0.08f, Offset(0.41f, 0.85f), mirrored = true),
-    CarlingArt(R.drawable.carling_stage7, 1.1f, Offset(0.2f, 0.65f), 0.07f, Offset(0.33f, 0.84f), mirrored = true),
-    CarlingArt(R.drawable.carling_stage8, 1.12f, Offset(0.19f, 0.62f), 0.07f, Offset(0.29f, 0.84f), mirrored = true),
-    CarlingArt(R.drawable.carling_stage9, 1.14f, Offset(0.22f, 0.57f), 0.07f, null, mirrored = true),
+    jelly(R.drawable.carling_wind_stage2, 0.95f, Offset(0.497f, 0.745f), 0.15f, 0.49f, Offset(0.496f, 0.493f), 0.135f),
+    jelly(R.drawable.carling_wind_stage3, 1.02f, Offset(0.462f, 0.784f), 0.13f, 0.46f, Offset(0.461f, 0.589f), 0.113f),
+    standing(R.drawable.carling_wind_stage4, 1.08f, Offset(0.470f, 0.773f), 0.11f, 0.48f, Offset(0.477f, 0.497f), 0.106f),
+    standing(R.drawable.carling_wind_stage5, 1.25f, Offset(0.44f, 0.75f), 0.08f, 0.57f, Offset(0.440f, 0.603f), 0.055f),
 )
 
-/** 성장 2부터의 빛 계열 일러스트. 진화 2부터 자동차 모습이다. */
 private val LightArts = listOf(
-    CarlingArt(R.drawable.carling_light_stage2, 0.86f, Offset(0.479f, 0.656f), 0.138f, Offset(0.493f, 0.84f), Offset(0.486f, 0.490f), 0.331f, eyes = Offset(0.475f, 0.458f), eyeGap = 0.102f),
-    CarlingArt(R.drawable.carling_light_stage3, 1.2f, Offset(0.474f, 0.661f), 0.114f, Offset(0.489f, 0.84f), Offset(0.486f, 0.557f), 0.259f, eyes = Offset(0.477f, 0.507f), eyeGap = 0.091f),
-    CarlingArt(R.drawable.carling_light_stage4, 1.24f, Offset(0.429f, 0.656f), 0.105f, Offset(0.455f, 0.84f), Offset(0.439f, 0.547f), 0.251f, eyes = Offset(0.429f, 0.509f), eyeGap = 0.089f),
-    CarlingArt(R.drawable.carling_light_stage5, 1.3f, Offset(0.379f, 0.671f), 0.099f, Offset(0.415f, 0.84f), Offset(0.407f, 0.566f), 0.243f, eyes = Offset(0.386f, 0.529f), eyeGap = 0.084f),
-    CarlingArt(R.drawable.carling_light_stage6, 1.1f, Offset(0.581f, 0.608f), 0.086f, Offset(0.434f, 0.84f), mirrored = true),
-    CarlingArt(R.drawable.carling_light_stage7, 1.1f, Offset(0.423f, 0.634f), 0.087f, Offset(0.406f, 0.84f), mirrored = true),
-    CarlingArt(R.drawable.carling_light_stage8, 1.12f, Offset(0.410f, 0.639f), 0.080f, Offset(0.337f, 0.84f), mirrored = true),
-    CarlingArt(R.drawable.carling_light_stage9, 1.14f, Offset(0.427f, 0.645f), 0.086f, Offset(0.339f, 0.84f), mirrored = true),
+    jelly(R.drawable.carling_light_stage2, 0.95f, Offset(0.494f, 0.746f), 0.15f, 0.49f, Offset(0.495f, 0.482f), 0.139f),
+    jelly(R.drawable.carling_light_stage3, 1.02f, Offset(0.492f, 0.752f), 0.15f, 0.49f, Offset(0.491f, 0.512f), 0.134f),
+    standing(R.drawable.carling_light_stage4, 1.08f, Offset(0.481f, 0.739f), 0.12f, 0.48f, Offset(0.485f, 0.432f), 0.115f),
+    standing(R.drawable.carling_light_stage5, 1.15f, Offset(0.388f, 0.744f), 0.11f, 0.41f, Offset(0.396f, 0.495f), 0.088f),
 )
 
-/** 성장 2부터의 나무 계열 일러스트. 진화 2부터 네 바퀴 달린 모습이다. */
 private val TreeArts = listOf(
-    CarlingArt(R.drawable.carling_tree_stage2, 0.86f, Offset(0.479f, 0.658f), 0.138f, Offset(0.490f, 0.84f), Offset(0.486f, 0.491f), 0.331f, eyes = Offset(0.475f, 0.459f), eyeGap = 0.103f),
-    CarlingArt(R.drawable.carling_tree_stage3, 1.19f, Offset(0.463f, 0.706f), 0.099f, Offset(0.470f, 0.84f), Offset(0.470f, 0.587f), 0.247f, eyes = Offset(0.463f, 0.563f), eyeGap = 0.088f),
-    CarlingArt(R.drawable.carling_tree_stage4, 1.24f, Offset(0.421f, 0.702f), 0.099f, Offset(0.436f, 0.84f), Offset(0.439f, 0.580f), 0.247f, eyes = Offset(0.423f, 0.553f), eyeGap = 0.082f),
-    CarlingArt(R.drawable.carling_tree_stage5, 1.25f, Offset(0.410f, 0.696f), 0.110f, Offset(0.422f, 0.84f), Offset(0.423f, 0.571f), 0.255f, eyes = Offset(0.410f, 0.542f), eyeGap = 0.088f),
-    CarlingArt(R.drawable.carling_tree_stage6, 1.18f, Offset(0.362f, 0.638f), 0.070f, Offset(0.481f, 0.84f), mirrored = true),
-    CarlingArt(R.drawable.carling_tree_stage7, 1.18f, Offset(0.283f, 0.587f), 0.070f, Offset(0.364f, 0.84f), mirrored = true),
-    CarlingArt(R.drawable.carling_tree_stage8, 1.2f, Offset(0.260f, 0.587f), 0.070f, Offset(0.354f, 0.84f), mirrored = true),
-    CarlingArt(R.drawable.carling_tree_stage9, 1.2f, Offset(0.226f, 0.601f), 0.070f, Offset(0.393f, 0.84f), mirrored = true),
+    jelly(R.drawable.carling_tree_stage2, 0.95f, Offset(0.496f, 0.747f), 0.15f, 0.50f, Offset(0.500f, 0.493f), 0.139f),
+    jelly(R.drawable.carling_tree_stage3, 1.02f, Offset(0.468f, 0.780f), 0.13f, 0.48f, Offset(0.466f, 0.560f), 0.121f),
+    standing(R.drawable.carling_tree_stage4, 1.08f, Offset(0.462f, 0.744f), 0.11f, 0.47f, Offset(0.464f, 0.461f), 0.112f),
+    standing(R.drawable.carling_tree_stage5, 1.2f, Offset(0.391f, 0.734f), 0.09f, 0.44f, Offset(0.398f, 0.527f), 0.072f),
 )
 
-/** 성장 2부터의 물 계열 일러스트. 진화 2부터 물속을 헤엄치는 모습이라 그림자가 없다. */
 private val WaterArts = listOf(
-    CarlingArt(R.drawable.carling_water_stage2, 0.86f, Offset(0.478f, 0.661f), 0.141f, Offset(0.490f, 0.84f), Offset(0.486f, 0.490f), 0.331f, eyes = Offset(0.475f, 0.458f), eyeGap = 0.103f),
-    CarlingArt(R.drawable.carling_water_stage3, 1.2f, Offset(0.459f, 0.721f), 0.096f, Offset(0.468f, 0.84f), Offset(0.470f, 0.589f), 0.247f, eyes = Offset(0.455f, 0.571f), eyeGap = 0.081f),
-    CarlingArt(R.drawable.carling_water_stage4, 1.1f, Offset(0.364f, 0.699f), 0.110f, Offset(0.375f, 0.84f), Offset(0.375f, 0.560f), 0.263f, eyes = Offset(0.365f, 0.529f), eyeGap = 0.085f),
-    CarlingArt(R.drawable.carling_water_stage5, 1.19f, Offset(0.407f, 0.721f), 0.093f, Offset(0.427f, 0.84f), Offset(0.407f, 0.605f), 0.215f, eyes = Offset(0.407f, 0.591f), eyeGap = 0.077f),
-    CarlingArt(R.drawable.carling_water_stage6, 1.1f, Offset(0.493f, 0.678f), 0.079f, null, mirrored = true),
-    CarlingArt(R.drawable.carling_water_stage7, 1.1f, Offset(0.415f, 0.637f), 0.070f, null, mirrored = true),
-    CarlingArt(R.drawable.carling_water_stage8, 1.13f, Offset(0.319f, 0.624f), 0.070f, null, mirrored = true),
-    CarlingArt(R.drawable.carling_water_stage9, 1f, Offset(0.630f, 0.473f), 0.070f, null),
+    jelly(R.drawable.carling_water_stage2, 0.95f, Offset(0.494f, 0.739f), 0.16f, 0.49f, Offset(0.492f, 0.487f), 0.141f),
+    jelly(R.drawable.carling_water_stage3, 1.02f, Offset(0.451f, 0.804f), 0.14f, 0.45f, Offset(0.452f, 0.622f), 0.109f),
+    standing(R.drawable.carling_water_stage4, 1.08f, Offset(0.472f, 0.769f), 0.12f, 0.48f, Offset(0.475f, 0.509f), 0.106f),
+    standing(R.drawable.carling_water_stage5, 1.2f, Offset(0.340f, 0.756f), 0.10f, 0.36f, Offset(0.339f, 0.583f), 0.072f),
 )
 
-/** 성장 2부터의 흙 계열 일러스트. 진화 3 원본만 오른쪽을 보고 있어 뒤집지 않는다. */
 private val EarthArts = listOf(
-    CarlingArt(R.drawable.carling_earth_stage2, 0.86f, Offset(0.479f, 0.658f), 0.139f, Offset(0.487f, 0.84f), Offset(0.486f, 0.492f), 0.331f, eyes = Offset(0.475f, 0.460f), eyeGap = 0.103f),
-    CarlingArt(R.drawable.carling_earth_stage3, 1.1f, Offset(0.475f, 0.657f), 0.121f, Offset(0.486f, 0.84f), Offset(0.486f, 0.515f), 0.287f, eyes = Offset(0.474f, 0.477f), eyeGap = 0.099f),
-    CarlingArt(R.drawable.carling_earth_stage4, 1.14f, Offset(0.418f, 0.659f), 0.098f, Offset(0.438f, 0.84f), Offset(0.431f, 0.539f), 0.247f, eyes = Offset(0.427f, 0.503f), eyeGap = 0.088f),
-    CarlingArt(R.drawable.carling_earth_stage5, 1.1f, Offset(0.349f, 0.579f), 0.097f, Offset(0.434f, 0.84f), Offset(0.375f, 0.498f), 0.239f, eyes = Offset(0.349f, 0.451f), eyeGap = 0.074f),
-    CarlingArt(R.drawable.carling_earth_stage6, 1.1f, Offset(0.358f, 0.620f), 0.070f, Offset(0.457f, 0.84f), mirrored = true),
-    CarlingArt(R.drawable.carling_earth_stage7, 1.11f, Offset(0.335f, 0.593f), 0.070f, Offset(0.436f, 0.84f), mirrored = true),
-    CarlingArt(R.drawable.carling_earth_stage8, 1.14f, Offset(0.337f, 0.570f), 0.070f, Offset(0.374f, 0.84f), mirrored = true),
-    CarlingArt(R.drawable.carling_earth_stage9, 1.14f, Offset(0.466f, 0.529f), 0.070f, Offset(0.513f, 0.84f)),
+    jelly(R.drawable.carling_earth_stage2, 0.95f, Offset(0.499f, 0.753f), 0.15f, 0.50f, Offset(0.499f, 0.508f), 0.144f),
+    jelly(R.drawable.carling_earth_stage3, 1.02f, Offset(0.388f, 0.772f), 0.14f, 0.39f, Offset(0.393f, 0.546f), 0.130f),
+    standing(R.drawable.carling_earth_stage4, 1.08f, Offset(0.409f, 0.728f), 0.11f, 0.42f, Offset(0.431f, 0.421f), 0.126f),
+    standing(R.drawable.carling_earth_stage5, 1.22f, Offset(0.484f, 0.817f), 0.07f, 0.51f, Offset(0.489f, 0.675f), 0.056f),
 )
 
-/** 해당 단계의 일러스트. */
-internal fun carlingArt(stageIndex: Int, lineage: Lineage?): CarlingArt? {
-    if (stageIndex < PearlArts.size) return PearlArts[stageIndex.coerceAtLeast(0)]
+/** 해당 단계의 일러스트. 계열이 정해지기 전이면 진주색 아기 카링이다. */
+internal fun carlingArt(stageIndex: Int, lineage: Lineage?): CarlingArt {
+    if (stageIndex < PearlArts.size || lineage == null) return PearlArts[stageIndex.coerceIn(0, PearlArts.size - 1)]
     val arts = when (lineage) {
-        null, Lineage.WIND -> WindArts
+        Lineage.WIND -> WindArts
         Lineage.LIGHT_RAY -> LightArts
         Lineage.TREE -> TreeArts
         Lineage.WATER -> WaterArts
         Lineage.EARTH -> EarthArts
     }
-    return arts.getOrNull(stageIndex - PearlArts.size)
+    return arts[(stageIndex - PearlArts.size).coerceIn(0, arts.size - 1)]
 }
 
-/** 자는 모습 일러스트는 진화 1의 젤리 형태에 맞춰 그려졌다. */
-internal const val SLEEP_ART_STAGE = 3
+/** 이 단계·계열의 모습에 아이템이 보이는지. 모든 모습에 머리 기준점이 있어 지금은 언제나 보인다. */
+internal fun canWearItem(stageIndex: Int, lineage: Lineage?, item: CarlingItem? = null): Boolean =
+    carlingArt(stageIndex, lineage).bodyCenter != null
 
-internal val SleepArtRes = R.drawable.carling_sleep
+/**
+ * 이동수단 그림. 지금은 한 장짜리 그림이라, 카링을 좌석 등받이 앞에 크게 앉혀 의자를 가리고
+ * [cover] 아래쪽 차체(문·옆판)를 한 번 더 그려 카링이 차 안에 앉은 것처럼 보이게 한다.
+ * 뒷면·앞면 2장 그림을 받으면 그 사이에 끼우는 방식으로 바꾼다.
+ * @param seat 카링 바닥이 닿는 위치(그림 한 변 = 1). 차체에 가려지는 쿠션 높이다
+ * @param cover 이 높이 아래의 차체를 카링 앞에 다시 그린다
+ * @param rider 탄 카링의 크기(이동수단 그림 한 변 대비). 등받이를 다 가릴 만큼 크게 잡는다
+ * @param straddle 바이크처럼 걸터앉는 이동수단. 몸을 안장 높이까지 내리고, 안장 아래로 내려가는 부분은
+ *   부드럽게 사라지게 해 안장에 앉은 것처럼 보이게 한다(딱 잘린 선이 보이지 않게)
+ */
+internal data class VehicleArt(
+    @param:DrawableRes val res: Int,
+    val seat: Offset,
+    val cover: Float,
+    val rider: Float,
+    val straddle: Boolean = false,
+)
 
-/** 이 단계·계열의 모습에 아이템이 보이는지. 드래곤처럼 옆모습이면 보이지 않고, 신발은 바퀴가 달린 뒤로는 신을 수 없다. */
-internal fun canWearItem(stageIndex: Int, lineage: Lineage?, item: CarlingItem? = null): Boolean {
-    val art = carlingArt(stageIndex, lineage) ?: return true
-    if (art.bodyCenter == null) return false
-    val wheels = stageIndex >= 3 && (lineage == Lineage.LIGHT_RAY || lineage == Lineage.EARTH)
-    return !(item == CarlingItem.SHOES && wheels)
+/** 걸터앉을 때 안장 아래로 내리는 높이와, 그 위에서 서서히 사라지는 띠의 높이(카링 그림 한 변 대비). */
+internal const val STRADDLE_LEGS = 0.12f
+internal const val STRADDLE_FADE = 0.10f
+
+internal fun vehicleArt(vehicle: Vehicle): VehicleArt = when (vehicle) {
+    Vehicle.LEAF_BUGGY -> VehicleArt(R.drawable.vehicle_leaf_buggy, Offset(0.58f, 0.68f), 0.62f, 0.42f)
+    Vehicle.SHELL_CAR -> VehicleArt(R.drawable.vehicle_shell_car, Offset(0.47f, 0.68f), 0.63f, 0.44f)
+    Vehicle.WING_CAR -> VehicleArt(R.drawable.vehicle_wing_car, Offset(0.465f, 0.77f), 0.72f, 0.38f)
+    Vehicle.GOLD_RACER -> VehicleArt(R.drawable.vehicle_gold_racer, Offset(0.61f, 0.74f), 0.69f, 0.38f)
+    Vehicle.FOX_BIKE -> VehicleArt(R.drawable.vehicle_fox_bike, Offset(0.62f, 0.575f), 0.585f, 0.44f, straddle = true)
 }

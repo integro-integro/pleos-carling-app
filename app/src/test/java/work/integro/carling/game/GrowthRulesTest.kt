@@ -24,17 +24,14 @@ class GrowthRulesTest {
     }
 
     @Test
-    fun driveXpFollowsTable() {
-        // 기본 XP(누적값) + 안전 보너스(90점 이상 트립당 +2)
-        assertEquals(2, GrowthRules.driveXp(trips = 1, safeTrips = 1))
-        assertEquals(14, GrowthRules.driveXp(trips = 2, safeTrips = 2))
-        assertEquals(19, GrowthRules.driveXp(trips = 3, safeTrips = 3))
-        assertEquals(24, GrowthRules.driveXp(trips = 4, safeTrips = 4))
-        assertEquals(30, GrowthRules.driveXp(trips = 5, safeTrips = 5))
-        // 예: 4회 중 3회 90점 이상 = 16 + 6 = 22
-        assertEquals(22, GrowthRules.driveXp(trips = 4, safeTrips = 3))
-        // 상한 30
-        assertEquals(30, GrowthRules.driveXp(trips = 9, safeTrips = 9))
+    fun savedCardXpFollowsV05Table() {
+        // 저장한 카드 1장 10 XP, 95점 이상이면 +3, 운전일마다 5장까지
+        assertEquals(10, GrowthRules.cardXp(safety = 92, rewardedOnDay = 0))
+        assertEquals(13, GrowthRules.cardXp(safety = 95, rewardedOnDay = 4))
+        assertEquals(10, GrowthRules.cardXp(safety = null, rewardedOnDay = 0))
+        assertEquals(0, GrowthRules.cardXp(safety = 95, rewardedOnDay = 5))
+        // 하루 최대 50 + 15 + 6
+        assertEquals(71, GrowthRules.DAILY_XP_MAX)
     }
 
     @Test
@@ -47,38 +44,33 @@ class GrowthRulesTest {
     }
 
     @Test
-    fun intimacyXpCapsAtTwoActions() {
-        assertEquals(0, GrowthRules.intimacyXp(0))
-        assertEquals(5, GrowthRules.intimacyXp(1))
-        assertEquals(10, GrowthRules.intimacyXp(2))
-        assertEquals(10, GrowthRules.intimacyXp(4))
+    fun intimacyXpOncePerActionPerDay() {
+        assertEquals(2, GrowthRules.intimacyXp("PET", emptySet()))
+        assertEquals(0, GrowthRules.intimacyXp("PET", setOf("PET")))
+        assertEquals(2, GrowthRules.intimacyXp("PLAY", setOf("PET", "FEED")))
+        // 말 걸기는 이번 범위에서 뺐다
+        assertEquals(0, GrowthRules.intimacyXp("TALK", emptySet()))
     }
 
     @Test
     fun stageNamesFollowGrowthOrder() {
-        val wind = (0..9).map { GrowthRules.stageName(it, Lineage.WIND) }
         assertEquals(
-            listOf(
-                "아기 키링 1단계", "아기 키링 2단계", "아기 키링 3단계",
-                "산들링 1단계", "산들링 2단계", "산들링 3단계",
-                "나래링 1단계", "나래링 2단계", "나래링 3단계", "하늘링 완전체",
-            ),
-            wind,
+            listOf("아기 카링 1단계", "아기 카링 성장", "아기 카링 2단계", "산들링", "날개링", "하늘링"),
+            (0..5).map { GrowthRules.stageName(it, Lineage.WIND) },
         )
-        assertEquals("반짝링 1단계", GrowthRules.stageName(3, Lineage.LIGHT_RAY))
-        assertEquals("잎새링 2단계", GrowthRules.stageName(7, Lineage.TREE))
-        assertEquals("파도링 3단계", GrowthRules.stageName(8, Lineage.WATER))
-        assertEquals("질주링 완전체", GrowthRules.stageName(9, Lineage.EARTH))
+        assertEquals("반짝링", GrowthRules.stageName(3, Lineage.LIGHT_RAY))
+        assertEquals("잎새링", GrowthRules.stageName(4, Lineage.TREE))
+        assertEquals("바다링", GrowthRules.stageName(5, Lineage.WATER))
+        assertEquals("구미링", GrowthRules.stageName(5, Lineage.EARTH))
     }
 
     @Test
     fun evolutionsTeachNewMoves() {
-        assertNull(GrowthRules.learnedMove(1, Lineage.WIND))
+        assertNull(GrowthRules.learnedMove(2, Lineage.WIND))
         assertEquals(SpecialMove.FLIP, GrowthRules.learnedMove(3, Lineage.TREE))
-        assertEquals(SpecialMove.WAVE, GrowthRules.learnedMove(6, Lineage.WATER))
-        assertEquals(SpecialMove.AURA, GrowthRules.learnedMove(9, Lineage.EARTH))
-        assertEquals(emptyList<SpecialMove>(), GrowthRules.knownMoves(2, Lineage.WIND))
-        assertEquals(listOf(SpecialMove.FLIP, SpecialMove.ZIP), GrowthRules.knownMoves(8, Lineage.LIGHT_RAY))
+        assertEquals(SpecialMove.WAVE, GrowthRules.learnedMove(4, Lineage.WATER))
+        assertEquals(SpecialMove.AURA, GrowthRules.learnedMove(5, Lineage.EARTH))
+        assertEquals(listOf(SpecialMove.FLIP, SpecialMove.ZIP), GrowthRules.knownMoves(4, Lineage.LIGHT_RAY))
     }
 
     @Test
@@ -224,14 +216,6 @@ class GrowthRulesTest {
     }
 
     @Test
-    fun growthDiscardsOverflow() {
-        assertEquals(192, GrowthRules.overflow(262, 70))
-        assertEquals(0, GrowthRules.overflow(70, 70))
-        // 초과분을 버리면 다음 단계 게이지는 빈 칸에서 시작한다
-        assertEquals(0f, GrowthRules.stageProgress(262 - GrowthRules.overflow(262, 70), 70, 180), 0.001f)
-    }
-
-    @Test
     fun recordedTrackDrawsActualRoad() {
         val track = listOf(GeoDot(37.5, 127.0), GeoDot(37.51, 127.01), GeoDot(37.52, 127.0))
         assertEquals(track, roadShape(MapRoute(toLat = 37.52, toLng = 127.0, fromLat = 37.5, fromLng = 127.0), track))
@@ -266,7 +250,7 @@ class GrowthRulesTest {
     fun itemsOpenAtFirstGrowth() {
         assertEquals(false, GrowthRules.itemsUnlocked(0))
         assertEquals(true, GrowthRules.itemsUnlocked(1))
-        assertEquals(true, GrowthRules.itemsUnlocked(9))
+        assertEquals(true, GrowthRules.itemsUnlocked(5))
     }
 
     @Test
@@ -282,39 +266,34 @@ class GrowthRulesTest {
     }
 
     @Test
-    fun savingPaysMpOnlyForFirstTwoCardsOfTheDay() {
-        assertEquals(3, GrowthRules.saveMp(newPlace = true, alreadyRewarded = false, rewardedOnDay = 0))
-        assertEquals(1, GrowthRules.saveMp(newPlace = false, alreadyRewarded = false, rewardedOnDay = 1))
-        assertEquals(1, GrowthRules.saveMp(newPlace = null, alreadyRewarded = false, rewardedOnDay = 0))
-        assertEquals(0, GrowthRules.saveMp(newPlace = true, alreadyRewarded = false, rewardedOnDay = 2))
-        // 저장을 취소했다가 다시 저장해도 더 주지 않는다
-        assertEquals(0, GrowthRules.saveMp(newPlace = true, alreadyRewarded = true, rewardedOnDay = 0))
+    fun dayPartFollowsClockWithFade() {
+        assertEquals(DayPart.NIGHT to 1f, dayPartAt(3, 0))
+        assertEquals(DayPart.MORNING to 0.5f, dayPartAt(5, 15))
+        assertEquals(DayPart.DAY to 1f, dayPartAt(12, 0))
+        assertEquals(DayPart.DUSK to 0f, dayPartAt(16, 0))
+        assertEquals(DayPart.NIGHT to 1f, dayPartAt(19, 30))
+        assertEquals(DayPart.DUSK, DayPart.NIGHT.previous)
+        assertEquals(DayPart.NIGHT, DayPart.MORNING.previous)
     }
 
     @Test
-    fun stageNeedsDayXpAndMp_andDoesNotSkip() {
-        // D7 성장1: 70 XP · 5 MP
-        assertEquals(0, GrowthRules.stageIndex(dayNumber = 7, totalXp = 69, totalMp = 5, ownedCards = emptySet(), doneQuests = emptySet()))
-        assertEquals(1, GrowthRules.stageIndex(dayNumber = 7, totalXp = 70, totalMp = 5, ownedCards = emptySet(), doneQuests = emptySet()))
-        // 날짜가 모자라면 XP·MP가 넘쳐도 못 올라간다
-        assertEquals(0, GrowthRules.stageIndex(dayNumber = 6, totalXp = 9999, totalMp = 9999, ownedCards = emptySet(), doneQuests = emptySet()))
+    fun stageNeedsDrivingDaysAndXp_andDoesNotSkip() {
+        // 7운전일 · 175 XP
+        assertEquals(0, GrowthRules.stageIndex(drivingDays = 7, totalXp = 174))
+        assertEquals(1, GrowthRules.stageIndex(drivingDays = 7, totalXp = 175))
+        // 운전일이 모자라면 XP가 넘쳐도 못 자란다 — 많이 달린다고 더 빨라지지 않는다
+        assertEquals(0, GrowthRules.stageIndex(drivingDays = 6, totalXp = 9999))
+        assertEquals(4, GrowthRules.stageIndex(drivingDays = 60, totalXp = 9999))
+        assertEquals(5, GrowthRules.stageIndex(drivingDays = 90, totalXp = 2250))
     }
 
     @Test
-    fun evolutionNeedsCardAndQuest() {
-        // 진화1(D30, 450 XP, 20 MP) — 카드/퀘스트 없으면 성장2(idx2)에서 멈춘다
-        assertEquals(2, GrowthRules.stageIndex(dayNumber = 30, totalXp = 450, totalMp = 20, ownedCards = emptySet(), doneQuests = emptySet()))
-        assertEquals(2, GrowthRules.stageIndex(dayNumber = 30, totalXp = 450, totalMp = 20, ownedCards = setOf(1), doneQuests = emptySet()))
-        assertEquals(3, GrowthRules.stageIndex(dayNumber = 30, totalXp = 450, totalMp = 20, ownedCards = setOf(1), doneQuests = setOf(1)))
-    }
-
-    @Test
-    fun activeEvolutionByLotteryWindow() {
-        assertNull(GrowthRules.activeEvolution(dayNumber = 19, ownedCards = emptySet()))
-        assertEquals(1, GrowthRules.activeEvolution(dayNumber = 20, ownedCards = emptySet())?.evoIndex)
-        // 1을 이미 가졌으면 다음은 2(추첨 시작 D80)
-        assertNull(GrowthRules.activeEvolution(dayNumber = 30, ownedCards = setOf(1)))
-        assertEquals(2, GrowthRules.activeEvolution(dayNumber = 80, ownedCards = setOf(1))?.evoIndex)
+    fun basicPatternFinishesInNinetyDrivingDays() {
+        // 기본 패턴(경유 포함 3장 저장 = 30 XP/운전일)이면 90운전일에 완성형
+        assertEquals(5, GrowthRules.stageIndex(drivingDays = 90, totalXp = 90 * 30))
+        // 왕복 2장(20 XP)만 저장하면 XP가 모자라 조금 늦다
+        assertEquals(4, GrowthRules.stageIndex(drivingDays = 90, totalXp = 90 * 20))
+        assertEquals(5, GrowthRules.stageIndex(drivingDays = 113, totalXp = 113 * 20))
     }
 
     @Test
@@ -328,5 +307,29 @@ class GrowthRulesTest {
         assertEquals(Lineage.WIND, GrowthRules.dominantLineage(GrowthRules.scoreTrip(28f, 0, true)))
         assertEquals(Lineage.EARTH, GrowthRules.dominantLineage(GrowthRules.scoreTrip(5f, 0, true)))
         assertEquals(Lineage.LIGHT_RAY, GrowthRules.dominantLineage(GrowthRules.scoreTrip(12f, 4, false)))
+    }
+
+    @Test
+    fun carCatalogDrawsKnownCarsAndPrefersNewOnes() {
+        assertEquals(CarCatalog.ALL.size, CarCatalog.ALL.map { it.id }.toSet().size)
+        assertEquals(CarRarity.LEGEND, CarCatalog.of("gv60_magma")?.rarity)
+        val rnd = kotlin.random.Random(1)
+        val counts = (1..4000).map { CarCatalog.draw(emptySet(), rnd).rarity }.groupingBy { it }.eachCount()
+        // 일반이 가장 흔하고 전설이 가장 드물다
+        assertEquals(true, counts.getValue(CarRarity.COMMON) > counts.getValue(CarRarity.RARE))
+        assertEquals(true, counts.getValue(CarRarity.EPIC) > (counts[CarRarity.LEGEND] ?: 0))
+    }
+
+    @Test
+    fun careIssuesFromVehicleSignals() {
+        val ok = work.integro.carling.vehicle.VehicleState(tirePressures = mapOf("LEFT_FRONT" to 240f), fuelPercent = 60, oilState = "NORMAL")
+        assertEquals(emptySet<CareIssue>(), ok.careStatus().first)
+        assertEquals(CareIssue.entries.toSet(), ok.careStatus().second)
+        val bad = ok.copy(tirePressures = mapOf("LEFT_FRONT" to 240f, "RIGHT_REAR" to 180f), fuelPercent = 10, oilState = "LOW")
+        assertEquals(CareIssue.entries.toSet(), bad.careStatus().first)
+        // 신호가 없으면 판단하지 않는다
+        assertEquals(emptySet<CareIssue>(), work.integro.carling.vehicle.VehicleState().careStatus().second)
+        assertEquals(true, CareRules.isLowTire(28f))
+        assertEquals(false, CareRules.isLowTire(33f))
     }
 }

@@ -6,15 +6,24 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.serialization.json.Json
+import work.integro.carling.game.CarCatalog
+import work.integro.carling.game.CareIssue
+import work.integro.carling.game.CareRules
+import work.integro.carling.game.Coupon
+import work.integro.carling.game.CouponKind
 import work.integro.carling.game.CarlingItem
+import work.integro.carling.game.DayPart
 import work.integro.carling.game.GameClock
 import work.integro.carling.game.GrowthRules
 import work.integro.carling.game.Light
 import work.integro.carling.game.Lineage
 import work.integro.carling.game.Region
+import work.integro.carling.game.Vehicle
+import work.integro.carling.game.UsableItem
+import work.integro.carling.game.VEHICLE_GIFT_STAGE
 import java.time.LocalDate
-import java.time.temporal.ChronoUnit
 import kotlin.random.Random
+import java.time.temporal.ChronoUnit
 
 private const val TAG = "CarlingStore"
 
@@ -36,8 +45,8 @@ data class TripResult(
 )
 
 /**
- * 카링 상태를 기기 안에 저장하고 v1 성장 엔진을 적용한다.
- * XP(성장 에너지)와 MP(지도 포인트)는 누적값으로 세고 서로 환산하지 않는다. 성장하면 초과분을 버린다.
+ * 카링 상태를 기기 안에 저장하고 성장 규칙 v0.5(서비스 시각화 V3)를 적용한다.
+ * 트립카드를 저장해야 XP가 들어오고 그날이 운전일이 된다. XP는 차감하지 않고, 최소 운전일과 누적 XP로 자란다.
  * 모든 변경은 메인 스레드에서 호출한다.
  */
 class CarlingStore(context: Context, val clock: GameClock) {
@@ -53,7 +62,47 @@ class CarlingStore(context: Context, val clock: GameClock) {
             runCatching { json.decodeFromString<CarlingData>(it) }
                 .onFailure { e -> Log.w(TAG, "저장 데이터 읽기 실패, 초기화", e) }
                 .getOrNull()
-        } ?: CarlingData()
+        }?.let(::migrate)?.let { d -> if (d.equippedItem?.hidden == true) d.copy(equippedItem = null) else d }
+            ?.let(::giveCarsToOldCards)
+            ?: CarlingData(growthVersion = GROWTH_VERSION)
+
+    /** 자동차 카드가 생기기 전에 저장한 트립카드에도 차를 정해 준다(카드 번호로 정해 늘 같은 차가 나온다). */
+    private fun giveCarsToOldCards(d: CarlingData): CarlingData {
+        if (d.tripCards.none { it.saved && it.carModel == null }) return d
+        val owned = d.tripCards.mapNotNull { it.carModel }.toMutableSet()
+        return d.copy(tripCards = d.tripCards.map { c ->
+            if (!c.saved || c.carModel != null) c
+            else CarCatalog.draw(owned, Random(c.number)).let { car -> owned += car.id; c.copy(carModel = car.id) }
+        })
+    }
+
+    /**
+     * 이전 성장 규칙(D일·MP·진화카드)으로 쌓인 저장을 v0.5로 다시 계산한다.
+     * 저장한 트립카드로 운전일과 XP를 다시 세고, 바뀐 단계는 변화 장면 없이 맞춘다.
+     */
+    private fun migrate(d: CarlingData): CarlingData {
+        if (d.growthVersion >= GROWTH_VERSION) return d
+        val rewarded = mutableMapOf<String, Int>()
+        val cards = d.tripCards.map { c ->
+            if (!c.saved) return@map c.copy(xpGained = 0)
+            val n = rewarded[c.date] ?: 0
+            val xp = GrowthRules.cardXp(c.safety, n)
+            if (xp > 0) rewarded[c.date] = n + 1
+            c.copy(xpGained = xp)
+        }
+        var next = d.copy(
+            tripCards = cards,
+            growthXp = cards.sumOf { it.xpGained },
+            drivingDays = cards.filter { it.saved }.map { it.date }.toSet(),
+            growthVersion = GROWTH_VERSION,
+        )
+        val stage = if (next.hatched) next.computedStage() else 0
+        val lineage = if (stage >= GrowthRules.LINEAGE_STAGE) next.lineage ?: GrowthRules.dominantLineage(next.lineageScores) else null
+        next = next.copy(reachedStage = stage, celebratedStage = stage, lineage = lineage)
+        if (next.scene !in next.ownedScenes()) next = next.copy(scene = Scene.LAB)
+        Log.i(TAG, "성장 규칙 v0.5로 변환: 운전일 ${next.drivingDayCount}, XP ${next.growthXp}, 단계 $stage")
+        return next
+    }
 
     /** 길별 실제 경로. 크기가 커서 자주 저장되는 상태와 나눠, 새 경로가 생길 때만 저장한다. */
     var routeTracks by mutableStateOf(loadTracks())
@@ -77,10 +126,17 @@ class CarlingStore(context: Context, val clock: GameClock) {
 
     // ---- 첫 만남(v1) ----
 
-    /** 알을 깨운다. 성격은 고르지 않고 첫 운전을 함께한 시간대가 정한다. 탄생일을 기록한다. */
-    fun hatch() = update {
-        val personality = it.personality ?: personalityFor(it.lightTrips)
-        it.copy(hatched = true, personality = personality, birthDate = clock.today().toString())
+    /**
+     * 알을 깨운다. 성격은 고르지 않고 첫 운전을 함께한 시간대가 정한다. 탄생일을 기록한다.
+     * 깨우기 전에 저장한 첫 트립카드(#001)의 보상도 여기서 함께 기록한다.
+     */
+    fun hatch() {
+        update {
+            val personality = it.personality ?: personalityFor(it.lightTrips)
+            it.copy(hatched = true, personality = personality, birthDate = clock.today().toString())
+        }
+        data.tripCards.firstOrNull()?.let { if (!it.saved) saveTripCard(it.number, force = true) }
+        update { it.copy(celebratedStage = it.reachedStage) }
     }
 
     /** 태어난 뒤 첫 쓰다듬기 — 친밀도 퀘스트를 처음 배우는 순간. */
@@ -92,10 +148,9 @@ class CarlingStore(context: Context, val clock: GameClock) {
                 petDate = clock.today().toString(),
                 petsToday = 1,
                 intimacy = (it.intimacy + GrowthRules.TRIP_INTIMACY).coerceAtMost(100),
-                intimacyActionsToday = it.intimacyActionsToday + "PET",
             )
         }
-        refreshStage()
+        gainIntimacyXp("PET")
     }
 
     fun giveName(value: String) = update { it.copy(name = value) }
@@ -121,7 +176,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
         }
     }
 
-    /** 위치는 지도의 길, 처음 간 곳 판정, 특산물 지역, 날씨 인사에 쓴다. 언제든 바꿀 수 있다. */
+    /** 위치는 지도의 길, 처음 간 곳 판정, 날씨 인사에 쓴다. 언제든 바꿀 수 있다. */
     fun setLocationConsent(allowed: Boolean) = update {
         it.copy(locationConsent = allowed, locationConsentVersion = CURRENT_LOCATION_CONSENT)
     }
@@ -186,52 +241,103 @@ class CarlingStore(context: Context, val clock: GameClock) {
 
     // ---- 날짜 롤오버 / 단계 계산 ----
 
-    /** 날이 바뀌면 오늘 XP·MP를 누적으로 접고 일일 집계를 리셋한다. */
+    /** 날이 바뀌면 교감 행동 집계를 비운다. XP는 누적값이라 접을 것이 없다. */
     private fun rolloverIfNeeded() {
         val today = clock.today().toString()
-        var d = data
-        if (d.xpDate != today) {
-            d = d.copy(
-                totalXpPastDays = d.totalXpPastDays + d.xpToday,
-                xpDate = today,
-                tripsToday = 0,
-                safeTripsToday = 0,
-                fuelXpGiven = false,
-                intimacyActionsToday = emptySet(),
-            )
-        }
-        if (d.mpDate != today) {
-            d = d.copy(
-                totalMpPastDays = d.totalMpPastDays + d.mpTodayValue,
-                mpDate = today,
-                mpTodayValue = 0,
-            )
-        }
-        if (d !== data) update { d }
+        if (data.xpDate != today) update { it.copy(xpDate = today, intimacyActionsToday = emptySet()) }
     }
 
+    /** 운전일과 누적 XP로 단계를 다시 계산한다. 아기 카링 2단계에 처음 닿으면 계열을 정한다. 퇴화는 없다. */
     private fun refreshStage() = update {
-        val idx = it.stageIndexOn(clock.today())
-        val lineage = if (it.lineage == null && idx >= 2) GrowthRules.dominantLineage(it.lineageScores) else it.lineage
-        val updated = it.copy(reachedStage = idx, lineage = lineage)
-        if (idx > it.reachedStage) restartGauges(updated, idx) else updated
+        if (!it.hatched) return@update it
+        val idx = maxOf(it.computedStage(), it.reachedStage)
+        val lineage = if (it.lineage == null && idx >= GrowthRules.LINEAGE_STAGE) GrowthRules.dominantLineage(it.lineageScores) else it.lineage
+        // 진화 2 기념: 내 계열의 이동수단
+        val vehicles = if (idx >= VEHICLE_GIFT_STAGE && lineage != null) it.ownedVehicles + Vehicle.of(lineage) else it.ownedVehicles
+        it.copy(reachedStage = idx, lineage = lineage, ownedVehicles = vehicles)
     }
 
-    /** 성장·진화하면 게이지를 모두 비운다. XP·MP는 초과분을 버려 새 단계의 시작값에서 다시 센다. */
-    private fun restartGauges(d: CarlingData, stage: Int): CarlingData {
-        val spec = GrowthRules.STAGES[stage]
-        return d.copy(
-            intimacy = 0,
-            fullness = 0,
-            totalXpPastDays = d.totalXpPastDays - GrowthRules.overflow(d.totalXp, spec.cumXp),
-            totalMpPastDays = d.totalMpPastDays - GrowthRules.overflow(d.totalMp, spec.cumMp),
-        )
+    // ---- 차량 돌봄 ----
+
+    /** 개발용: 차량 신호 대신 켜 둔 돌봄 문제. 저장하지 않는다. */
+    var devCare by mutableStateOf<Set<CareIssue>>(emptySet())
+    private val devTouched = HashSet<CareIssue>()
+
+    fun devToggleCare(issue: CareIssue) {
+        devTouched += issue
+        devCare = if (issue in devCare) devCare - issue else devCare + issue
+    }
+
+    /** 방금 마친 돌봄 퀘스트(잠깐 보여주는 알림). 저장하지 않는다. */
+    var careNotice by mutableStateOf<CareIssue?>(null)
+
+    /**
+     * 차량 신호로 돌봄 퀘스트를 맞춘다. 새로 생긴 문제는 퀘스트가 되고, 신호가 정상으로 돌아온 퀘스트는 완료된다.
+     * 신호를 받지 못한 항목은 완료로 치지 않는다(연결이 끊겼다고 낫지 않는다).
+     */
+    fun syncCare(vehicleIssues: Set<CareIssue>, known: Set<CareIssue>) {
+        if (!data.hatched) return
+        val issues = vehicleIssues + devCare
+        val judged = known + devTouched
+        val started = issues - data.careQuests
+        val resolved = data.careQuests.filter { it !in issues && it in judged }.toSet()
+        if (started.isEmpty() && resolved.isEmpty()) return
+        update {
+            var intimacy = it.intimacy
+            var heart = it.heartPoints
+            repeat(resolved.size) {
+                val sum = intimacy + CareRules.CARE_INTIMACY
+                heart += (sum - 100).coerceAtLeast(0)
+                intimacy = sum.coerceAtMost(100)
+            }
+            var gift = it.pendingGift
+            if (gift == null && heart >= CareRules.GIFT_HEART) {
+                heart -= CareRules.GIFT_HEART
+                gift = Coupon(clock.now(), CouponKind.entries.random(), clock.today().toString())
+            }
+            it.copy(
+                careQuests = it.careQuests - resolved + started,
+                careDone = it.careDone + resolved.size,
+                intimacy = intimacy,
+                heartPoints = heart,
+                pendingGift = gift,
+            )
+        }
+        resolved.minByOrNull { it.priority }?.let { careNotice = it }
+    }
+
+    /** 카링이 내민 선물을 받아 쿠폰함에 넣는다. */
+    fun claimGift() = update { d -> d.pendingGift?.let { d.copy(coupons = d.coupons + it, pendingGift = null) } ?: d }
+
+    // ---- 타기 ----
+
+    /** 이동수단에 타거나(가진 것만) 내린다(null). */
+    fun ride(vehicle: Vehicle?) = update {
+        if (vehicle == null || vehicle in it.ownedVehicles) it.copy(ridingVehicle = vehicle) else it
+    }
+
+    /** 진화 3 선물: 아직 없는 이동수단 하나를 골라 받는다. 받자마자 타 본다. */
+    fun pickVehicle(vehicle: Vehicle) = update {
+        if (!it.canPickVehicle || vehicle in it.ownedVehicles) it
+        else it.copy(ownedVehicles = it.ownedVehicles + vehicle, vehiclePicked = true, ridingVehicle = vehicle)
+    }
+
+    /** 개발용: 이동수단을 모두 받는다. */
+    fun devGrantVehicles() = update { it.copy(ownedVehicles = Vehicle.entries.toSet()) }
+
+    /** 교감 3종(쓰다듬기·밥 주기·놀아주기)은 각각 하루 한 번 +2 XP. */
+    private fun gainIntimacyXp(action: String) {
+        rolloverIfNeeded()
+        val xp = GrowthRules.intimacyXp(action, data.intimacyActionsToday)
+        update { it.copy(intimacyActionsToday = it.intimacyActionsToday + action, growthXp = it.growthXp + xp) }
+        refreshStage()
     }
 
     // ---- 하루 루틴(케어) ----
 
     fun greetIfNewDay(): Boolean {
         rolloverIfNeeded()
+        dropExpiredCards()
         applyDailyDecay()
         refreshStage()
         val today = clock.today().toString()
@@ -247,58 +353,39 @@ class CarlingStore(context: Context, val clock: GameClock) {
 
     fun canFeedToday(): Boolean = data.lastFeedDate != clock.today().toString()
 
-    /** 밥·간식 주기 — 포만감(케어) + 친밀도 행동 XP(하루 2행동까지 +5). */
+    /** 밥·간식 주기 — 포만감(케어) + 교감 XP(하루 1회 +2). */
     fun feed() {
         if (!canFeedToday()) return
-        rolloverIfNeeded()
         update {
             it.copy(
                 lastFeedDate = clock.today().toString(),
                 fullness = (it.fullness + GrowthRules.FEED_FULLNESS).coerceAtMost(100),
-                intimacyActionsToday = it.intimacyActionsToday + "FEED",
             )
         }
-        refreshStage()
+        gainIntimacyXp("FEED")
     }
 
-    /** 충전 세션 한 번 — 포만감 + 연료·충전 XP(하루 1회 +10). */
-    fun onCharging() {
-        rolloverIfNeeded()
-        update {
-            it.copy(
-                fullness = (it.fullness + GrowthRules.CHARGE_FULLNESS).coerceAtMost(100),
-                fuelXpGiven = true,
-            )
-        }
-        refreshStage()
+    /** 충전 세션 한 번 — 포만감만 채운다. 연료·충전 XP는 규칙 v0.5에서 보류했다. */
+    fun onCharging() = update {
+        it.copy(fullness = (it.fullness + GrowthRules.CHARGE_FULLNESS).coerceAtMost(100))
     }
 
-    /** 지역 특산물 먹이기. 배고플 때만 먹고, 포만감을 채우며 하루 XP 상한과 별도로 보너스 XP를 준다. */
-    fun eatFood(region: Region): Boolean {
-        val owned = data.foods[region] ?: 0
-        if (owned <= 0 || !GrowthRules.isHungry(data.fullness)) return false
-        rolloverIfNeeded()
+    /** 사용하기: 모아 둔 간식을 하나 먹인다. 포만감이 차고, 오늘 첫 밥이면 밥 주기 교감(+2 XP)으로 친다. */
+    fun useItem(item: UsableItem): Boolean {
+        val owned = data.usables[item] ?: 0
+        if (owned <= 0) return false
         update {
             it.copy(
-                foods = it.foods + (region to owned - 1),
-                fullness = (it.fullness + GrowthRules.FOOD_FULLNESS).coerceAtMost(100),
-                totalXpPastDays = it.totalXpPastDays + region.bonusXp,
+                usables = it.usables + (item to owned - 1),
+                fullness = (it.fullness + item.fullness).coerceAtMost(100),
+                lastFeedDate = clock.today().toString(),
             )
         }
-        refreshStage()
+        gainIntimacyXp("FEED")
         return true
     }
 
-    /** 이 지역 특산물을 오늘 아직 받지 않았다면 하나 더한다. */
-    private fun withRegionGift(d: CarlingData, region: Region?, day: String): CarlingData {
-        if (region == null || d.foodGiftDates[region] == day) return d
-        return d.copy(
-            foods = d.foods + (region to (d.foods[region] ?: 0) + 1),
-            foodGiftDates = d.foodGiftDates + (region to day),
-        )
-    }
-
-    /** 쓰다듬기 — 친밀도(케어) 하루 상한 + 친밀도 행동 XP. */
+    /** 쓰다듬기 — 친밀도(케어) 하루 상한 + 교감 XP(하루 1회 +2). */
     fun pet() {
         rolloverIfNeeded()
         val today = clock.today().toString()
@@ -309,28 +396,28 @@ class CarlingStore(context: Context, val clock: GameClock) {
                 petsToday = (count + 1).coerceAtMost(GrowthRules.DAILY_PETS),
                 intimacy = if (count < GrowthRules.DAILY_PETS)
                     (it.intimacy + GrowthRules.PET_INTIMACY).coerceAtMost(100) else it.intimacy,
-                intimacyActionsToday = it.intimacyActionsToday + "PET",
             )
         }
-        refreshStage()
+        gainIntimacyXp("PET")
     }
 
-    /** 놀아주기 / 말 걸기 — 친밀도 행동 XP(서로 다른 2행동까지). */
-    fun interact(action: String) {
-        rolloverIfNeeded()
-        update { it.copy(intimacyActionsToday = it.intimacyActionsToday + action) }
-        refreshStage()
-    }
+    /** 놀아주기 — 교감 XP(하루 1회 +2). */
+    fun play() = gainIntimacyXp("PLAY")
 
-    /** 아이템을 착용한다. null이면 벗는다. 성장 1 전에는 착용할 수 없다. */
+    /** 아이템을 착용한다. null이면 벗는다. 아기 카링 성장(7운전일) 전에는 착용할 수 없다. */
     fun equipItem(item: CarlingItem?) = update {
         if (GrowthRules.itemsUnlocked(it.reachedStage)) it.copy(equippedItem = item) else it
     }
 
     fun markItemIntroSeen() = update { it.copy(itemIntroSeen = true) }
 
-    /** 지금 단계까지 변화 장면을 본 것으로 표시한다. */
-    fun markStageCelebrated() = update { it.copy(celebratedStage = it.reachedStage) }
+    /** [stage]까지(기본은 지금 단계) 변화 장면을 본 것으로 표시한다. 새로 얻은 배경이 있으면 바로 입혀 준다. */
+    fun markStageCelebrated(stage: Int = data.reachedStage) = update {
+        val to = stage.coerceAtMost(it.reachedStage)
+        val from = it.celebratedStage ?: to
+        val fresh = (from + 1..to).flatMap { s -> Scene.unlockedAt(s) }
+        it.copy(celebratedStage = to, scene = fresh.lastOrNull() ?: it.scene)
+    }
 
     /** 개발용: 지금 단계의 변화 장면을 다시 보여준다. */
     fun devReplayStageChange() = update {
@@ -339,10 +426,11 @@ class CarlingStore(context: Context, val clock: GameClock) {
 
     fun toggleVoice() = update { it.copy(voiceOn = !it.voiceOn) }
 
-    fun setScene(value: Scene) = update { it.copy(scene = value) }
+    /** 얻은 배경만 고를 수 있다. */
+    fun setScene(value: Scene) = update { if (value in it.ownedScenes()) it.copy(scene = value) else it }
 
-    /** 개발용: 낮밤 미리보기. null이면 실제 시각을 따른다. 저장하지 않는다. */
-    var devNightness by mutableStateOf<Float?>(null)
+    /** 개발용: 시간대 미리보기. null이면 실제 시각을 따른다. 저장하지 않는다. */
+    var devDayPart by mutableStateOf<DayPart?>(null)
 
     /** 개발용: 외형 미리보기(단계, 계열). null이면 실제 단계를 따른다. 저장하지 않는다. */
     var devLook by mutableStateOf<Pair<Int, Lineage>?>(null)
@@ -368,45 +456,42 @@ class CarlingStore(context: Context, val clock: GameClock) {
         }
     }
 
-    // ---- 트립카드 저장 (MP) ----
+    // ---- 트립카드 저장 (XP · 운전일) ----
 
-    /** 지금 저장하면 받을 MP. */
-    fun saveMpFor(card: TripCard): Int = GrowthRules.saveMp(
-        newPlace = card.newPlace == true || card.newRoute,
-        alreadyRewarded = card.mpGained > 0,
-        rewardedOnDay = data.tripCards.count { it.date == card.date && it.mpGained > 0 },
+    /** 이 카드를 아직 저장할 수 있는지. 도착 후 24시간이 지나면 저장할 수 없고, 곧 지워진다. */
+    fun canSave(card: TripCard): Boolean =
+        !card.saved && clock.now() - card.endMillis <= GrowthRules.SAVE_WINDOW_MILLIS
+
+    /** 지금 저장하면 받을 XP. 그 운전일에 이미 5장을 보상받았으면 0. */
+    fun saveXpFor(card: TripCard): Int = GrowthRules.cardXp(
+        card.safety,
+        rewardedOnDay = data.tripCards.count { it.date == card.date && it.xpGained > 0 },
     )
 
-    /** 트립카드를 저장하거나 저장을 취소한다. 취소해도 받은 MP는 그대로이고, 다시 저장해도 더 주지 않는다. */
-    fun toggleTripSaved(number: Int) {
-        rolloverIfNeeded()
+    /**
+     * 트립카드를 저장한다. 저장하면 XP를 받고 그 트립의 날이 운전일이 되며, 운전 습관이 계열 점수에 더해진다.
+     * 저장은 되돌리지 않는다. [force]는 첫 트립카드처럼 저장 기간과 상관없이 저장할 때 쓴다.
+     */
+    fun saveTripCard(number: Int, force: Boolean = false) {
         val card = data.tripCards.firstOrNull { it.number == number } ?: return
-        val mp = if (card.saved) 0 else saveMpFor(card)
+        if (card.saved || (!force && !canSave(card))) return
+        val xp = saveXpFor(card)
+        val score = GrowthRules.scoreTrip(card.distanceKm, card.harshEvents, card.newPlace == true || card.newRoute)
+        val car = CarCatalog.draw(data.tripCards.mapNotNull { it.carModel }.toSet())
+        val item = UsableItem.draw()
         update {
             it.copy(
-                mpTodayValue = it.mpTodayValue + mp,
-                tripCards = it.tripCards.map { c ->
-                    if (c.number == number) c.copy(saved = !c.saved, mpGained = c.mpGained + mp) else c
-                },
+                usables = it.usables + (item to (it.usables[item] ?: 0) + 1),
+                growthXp = it.growthXp + xp,
+                drivingDays = it.drivingDays + card.date,
+                lineageScores = mergeScores(it.lineageScores, score),
+                tripCards = it.tripCards.map { c -> if (c.number == number) c.copy(saved = true, xpGained = xp, carModel = car.id, itemReward = item) else c },
             )
         }
         refreshStage()
     }
 
-    // ---- 진화 퀘스트 ----
-
     fun savedTripCount(): Int = data.tripCards.count { it.saved }
-
-    fun canCompleteQuest(evoIndex: Int): Boolean {
-        val spec = GrowthRules.EVOLUTIONS[evoIndex] ?: return false
-        return evoIndex !in data.doneQuests && savedTripCount() >= spec.memoriesNeeded
-    }
-
-    fun completeQuest(evoIndex: Int) {
-        if (!canCompleteQuest(evoIndex)) return
-        update { it.copy(doneQuests = it.doneQuests + evoIndex) }
-        refreshStage()
-    }
 
     // ---- 주행 기록 ----
 
@@ -423,7 +508,7 @@ class CarlingStore(context: Context, val clock: GameClock) {
         if (!data.hatched) {
             if (data.firstTripDone) return
             update {
-                withRegionGift(it, trip.region, day).copy(
+                it.copy(
                     firstTripDone = true,
                     firstTripMinutes = minutes,
                     firstTripDistanceKm = trip.distanceKm,
@@ -436,7 +521,6 @@ class CarlingStore(context: Context, val clock: GameClock) {
                     lightTrips = it.lightTrips + (light to 1),
                     placeCells = trip.placeCell?.let { c -> it.placeCells + c } ?: it.placeCells,
                     newPlaces = it.newPlaces + if (trip.placeCell != null) 1 else 0,
-                    lineageScores = mergeScores(it.lineageScores, GrowthRules.scoreTrip(trip.distanceKm, trip.harshEvents, trip.placeCell != null)),
                     mapRoutes = it.mapRoutes.afterTrip(trip.startLat, trip.startLng, trip.lat, trip.lng, trip.placeName, trip.distanceKm, day).routes,
                     tripCards = it.tripCards + TripCard(
                         number = 1,
@@ -450,81 +534,41 @@ class CarlingStore(context: Context, val clock: GameClock) {
                         newPlace = true,
                         dayNumber = 1,
                         placeCell = trip.placeCell,
-                        highlights = listOfNotNull(trip.region?.let { r -> "${r.foodName}을 받았어요" }, "우리의 첫 드라이브"),
+                        highlights = listOf("우리의 첫 드라이브"),
+                        harshEvents = trip.harshEvents,
                     ),
                 )
             }
             return
         }
 
-        rolloverIfNeeded()
         val before = data
-        val oldStage = before.reachedStage
-        val safe = GrowthRules.isSafeTrip(safety)
         val newPlace = trip.placeCell?.let { it !in before.placeCells }
-
-        // 진화카드 추첨 — 유효 운전일당 1회
-        var ownedCards = before.ownedCards
-        var cardFails = before.cardFails
-        var cardDrawDate = before.cardDrawDate
-        var cardGotLabel: String? = null
         val dayNum = before.dayNumber(clock.dateOf(trip.startMillis))
-        if (cardDrawDate != day) {
-            cardDrawDate = day
-            val evo = GrowthRules.activeEvolution(dayNum, ownedCards)
-            if (evo != null) {
-                val fails = cardFails[evo.evoIndex] ?: 0
-                val win = fails + 1 >= GrowthRules.CARD_PITY || Random.nextFloat() < GrowthRules.cardChance(before.tripsToday + 1)
-                if (win) {
-                    ownedCards = ownedCards + evo.evoIndex
-                    cardGotLabel = "${GrowthRules.STAGES.first { it.evoIndex == evo.evoIndex }.label} 카드"
-                } else {
-                    cardFails = cardFails + (evo.evoIndex to fails + 1)
-                }
-            }
-        }
 
         val highlights = mutableListOf<String>()
-        val giftFood = trip.region?.takeIf { before.foodGiftDates[it] != day }
-        giftFood?.let { highlights += "${it.foodName}을 받았어요" }
         val track = simplifyTrack(trip.track)
         val mapChange = before.mapRoutes.afterTrip(trip.startLat, trip.startLng, trip.lat, trip.lng, trip.placeName, trip.distanceKm, day, track) { routeTracks[it.trackKey] }
         if (mapChange.newRoute) highlights += "새로운 길이 지도에 켜졌어요"
         else if (mapChange.lit) highlights += "달렸던 길이 지도에서 더 밝아졌어요"
         if (newPlace == true) highlights += "처음 보는 풍경"
-        cardGotLabel?.let { highlights += "$it 획득" }
 
-        var next = before.copy(
+        val next = before.copy(
             togetherDays = before.togetherDays + day,
             tripCount = before.tripCount + 1,
             totalMinutes = before.totalMinutes + minutes,
-            tripsToday = before.tripsToday + 1,
-            safeTripsToday = before.safeTripsToday + if (safe) 1 else 0,
             lightMinutes = before.lightMinutes + (light to (before.lightMinutes[light] ?: 0) + minutes),
             lightTrips = before.lightTrips + (light to (before.lightTrips[light] ?: 0) + 1),
             placeCells = trip.placeCell?.let { before.placeCells + it } ?: before.placeCells,
             newPlaces = before.newPlaces + if (newPlace == true) 1 else 0,
             revisits = before.revisits + if (newPlace == false) 1 else 0,
             intimacy = (before.intimacy + GrowthRules.TRIP_INTIMACY).coerceAtMost(100),
-            lineageScores = mergeScores(before.lineageScores, GrowthRules.scoreTrip(trip.distanceKm, trip.harshEvents, newPlace)),
-            ownedCards = ownedCards,
-            cardFails = cardFails,
-            cardDrawDate = cardDrawDate,
         )
-
-        val newStage = next.stageIndexOn(clock.dateOf(trip.startMillis))
-        val lineageWasNull = before.lineage == null
-        val lineage = if (lineageWasNull && newStage >= 2) GrowthRules.dominantLineage(next.lineageScores) else before.lineage
-        next = next.copy(reachedStage = newStage, lineage = lineage)
-        if (newStage > oldStage) next = restartGauges(next, newStage)
-
-        if (newStage > oldStage) highlights += "${GrowthRules.stageName(newStage, lineage)} 도달"
-        if (lineageWasNull && lineage != null) highlights += "${lineage.label} 계열이 되었어요"
 
         val number = before.tripCount + 1
         saveTrack(mapChange.trackKey, track)
         update {
-            withRegionGift(next, giftFood, day).copy(
+            next.copy(
                 pendingCard = number,
                 mapRoutes = mapChange.routes,
                 pendingMapNotice = next.pendingMapNotice || mapChange.newRoute,
@@ -541,11 +585,34 @@ class CarlingStore(context: Context, val clock: GameClock) {
                     dayNumber = dayNum,
                     placeCell = trip.placeCell,
                     newRoute = mapChange.newRoute,
-                    driveXpToday = GrowthRules.driveXp(next.tripsToday, next.safeTripsToday),
                     highlights = highlights,
+                    harshEvents = trip.harshEvents,
+                    startName = before.tripCards.lastOrNull()?.placeName,
+                    routeDots = cardDots(track, trip),
                 ),
             )
         }
+    }
+
+    /** 카드에 그릴 경로를 24점 안쪽으로 줄인다. 경로가 없으면 출발·도착 두 점만 남긴다. */
+    private fun cardDots(track: List<GeoDot>, trip: TripResult): List<GeoDot> {
+        val pts = track.ifEmpty {
+            listOfNotNull(
+                trip.startLat?.let { la -> trip.startLng?.let { GeoDot(la, it) } },
+                trip.lat?.let { la -> trip.lng?.let { GeoDot(la, it) } },
+            )
+        }
+        if (pts.size <= 24) return pts
+        return List(24) { i -> pts[i * (pts.size - 1) / 23] }
+    }
+
+    /** 도착 후 24시간 안에 저장하지 않은 카드를 지운다. 자동차·아이템은 저장할 때만 주므로 함께 사라진다. */
+    fun dropExpiredCards() {
+        val now = clock.now()
+        val expired = data.tripCards.filter { !it.saved && now - it.endMillis > GrowthRules.SAVE_WINDOW_MILLIS }
+        if (expired.isEmpty()) return
+        val gone = expired.map { it.number }.toSet()
+        update { it.copy(tripCards = it.tripCards.filterNot { c -> c.number in gone }, pendingCard = it.pendingCard?.takeIf { n -> n !in gone }) }
     }
 
     private fun mergeScores(a: Map<Lineage, Float>, b: Map<Lineage, Float>): Map<Lineage, Float> {
@@ -557,14 +624,10 @@ class CarlingStore(context: Context, val clock: GameClock) {
 
     // ---- 개발용 ----
 
-    fun devGiveFood(region: Region) = update { withRegionGift(it, region, clock.today().toString() + "#" + it.foods.values.sum()) }
+    fun devGiveItems() = update { it.copy(usables = UsableItem.entries.associateWith { u -> (it.usables[u] ?: 0) + 1 }) }
 
     fun devMakeHungry() = update { it.copy(fullness = GrowthRules.MIN_FULLNESS) }
 
-    fun devGrantCard(evoIndex: Int) {
-        update { it.copy(ownedCards = it.ownedCards + evoIndex) }
-        refreshStage()
-    }
 
     /**
      * 개발용: 이름·첫 만남·설정은 그대로 두고 D1 아기 카링으로 되돌린다.
@@ -588,7 +651,8 @@ class CarlingStore(context: Context, val clock: GameClock) {
                 locationConsent = old.locationConsent,
                 locationConsentVersion = old.locationConsentVersion,
                 voiceOn = old.voiceOn,
-                scene = old.scene,
+                scene = Scene.LAB,
+                growthVersion = GROWTH_VERSION,
             )
         }
     }
@@ -597,11 +661,12 @@ class CarlingStore(context: Context, val clock: GameClock) {
         prefs.edit().clear().apply()
         clock.reset()
         routeTracks = emptyMap()
-        data = CarlingData()
+        data = CarlingData(growthVersion = GROWTH_VERSION)
     }
 
     private companion object {
         const val KEY_DATA = "data"
         const val KEY_TRACKS = "tracks"
+        const val GROWTH_VERSION = 5
     }
 }

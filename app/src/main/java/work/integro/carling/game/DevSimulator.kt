@@ -9,8 +9,8 @@ import java.time.ZoneId
 import kotlin.random.Random
 
 /**
- * 개발·데모용: 하루를 건너뛰며 '계열에 맞는 하루'(트립 2회 + 교감 + 충전 + 기억 저장)를
- * 기록해 XP·MP·단계를 빠르게 쌓는다. 출시 빌드에서는 숨긴다.
+ * 개발·데모용: 하루를 건너뛰며 '계열에 맞는 하루'(트립 3회 저장 + 교감 3종 = 36 XP)를
+ * 기록해 운전일·XP·단계를 빠르게 쌓는다. 출시 빌드에서는 숨긴다.
  */
 private val SAMPLE_PLACES = listOf(
     Triple("서울숲", 37.544, 127.037),
@@ -36,13 +36,10 @@ class DevSimulator(private val store: CarlingStore) {
         repeat(count) { simulateOneDay(lineage) }
     }
 
-    /** 목표 단계 인덱스에 도달할 때까지(최대 220일) 시뮬레이트. 진화 단계는 카드·퀘스트까지 채운다. */
+    /** 목표 단계 인덱스에 도달할 때까지(최대 130운전일) 시뮬레이트. */
     fun advanceToStage(targetIndex: Int, lineage: Lineage) {
         var guard = 0
-        while (store.data.reachedStage < targetIndex && guard++ < 220) {
-            simulateOneDay(lineage)
-            grantPendingEvolution()
-        }
+        while (store.data.reachedStage < targetIndex && guard++ < 130) simulateOneDay(lineage)
     }
 
     /** 시연용: 다음 지역으로 실제처럼 한 번 달린다. 새 길 알림과 지도 표시를 볼 수 있다. */
@@ -88,8 +85,8 @@ class DevSimulator(private val store: CarlingStore) {
         val (dist, harsh) = pattern(lineage)
         // 바람·흙·나무는 새 길(탐험) 위주, 빛·물은 늘 가던 길 위주 — 계열 판정이 또렷하게
         val explore = lineage == Lineage.WIND || lineage == Lineage.EARTH || lineage == Lineage.TREE
-        repeat(2) {
-            val start = clock.today().atTime(hour, it * 2).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        repeat(3) {
+            val start = clock.today().atTime(hour, it * 25).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val (lat, lng) = nextStop(explore)
             val (startLat, startLng) = lastStop()
             val cell = if (explore) "sim-${lineage.name}-${clock.today()}-${seq++}" else "sim-usual-${lineage.name}"
@@ -105,25 +102,16 @@ class DevSimulator(private val store: CarlingStore) {
                     lng = lng,
                     startLat = startLat,
                     startLng = startLng,
+                    // 실제 주행처럼 경로를 넣어 지도에서 길 주변이 밝혀지게 한다
+                    track = roadShape(MapRoute(lat, lng, startLat, startLng)),
                 ),
             )
-            store.data.pendingCard?.let { store.toggleTripSaved(it) }
+            store.data.pendingCard?.let { store.saveTripCard(it) }
             store.dismissTripCard()
         }
-        store.onCharging()      // 연료·충전 XP +10
-        store.pet()             // 친밀도 행동 1
-        store.interact("PLAY")  // 친밀도 행동 2 → 하루 친밀도 XP 10
-    }
-
-    /** 추첨이 시작된 진화 단계의 카드·퀘스트를 매일 채워 다음 단계로 넘어가게 한다(데모). */
-    private fun grantPendingEvolution() {
-        val dayNum = store.data.dayNumber(clock.today())
-        GrowthRules.EVOLUTIONS.values
-            .filter { dayNum >= it.lotteryStartDay }
-            .forEach { evo ->
-                if (evo.evoIndex !in store.data.ownedCards) store.devGrantCard(evo.evoIndex)
-                if (store.canCompleteQuest(evo.evoIndex)) store.completeQuest(evo.evoIndex)
-            }
+        store.pet()   // 교감 3종 각 +2
+        store.feed()
+        store.play()
     }
 
     /** 계열별 거리·급조작 패턴. */

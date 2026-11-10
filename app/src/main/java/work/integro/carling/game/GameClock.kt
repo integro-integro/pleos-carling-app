@@ -20,6 +20,8 @@ class GameClock(context: Context) {
     var offsetMillis by mutableLongStateOf(prefs.getLong(KEY_OFFSET, 0L))
         private set
 
+    init { shared = offsetMillis }
+
     fun now(): Long = System.currentTimeMillis() + offsetMillis
 
     fun today(): LocalDate = dateOf(now())
@@ -30,16 +32,22 @@ class GameClock(context: Context) {
 
     fun skipDays(days: Int) {
         offsetMillis += days * DAY_MILLIS
+        shared = offsetMillis
         prefs.edit().putLong(KEY_OFFSET, offsetMillis).apply()
     }
 
     fun reset() {
         offsetMillis = 0L
+        shared = 0L
         prefs.edit().clear().apply()
     }
 
     companion object {
         const val DAY_MILLIS = 24L * 60 * 60 * 1000
+
+        /** 화면에서 남은 시간을 셀 때 쓰는 지금 게임 시각. */
+        @Volatile private var shared = 0L
+        fun nowMillis(): Long = System.currentTimeMillis() + shared
         private const val KEY_OFFSET = "offset"
     }
 }

@@ -8,6 +8,14 @@ import ai.pleos.playground.vehicle.listener.EvBatteryLevelListener
 import ai.pleos.playground.vehicle.listener.EvBatteryStateOfChargeListener
 import ai.pleos.playground.vehicle.listener.EvChargePortOpenListener
 import ai.pleos.playground.vehicle.listener.GearSelectionListener
+import ai.pleos.playground.vehicle.listener.TirePressureListener
+import ai.pleos.playground.vehicle.listener.FuelPercentListener
+import ai.pleos.playground.vehicle.listener.OilLevelStateListener
+import ai.pleos.playground.vehicle.constant.control.OilLevelState
+import ai.pleos.playground.vehicle.constant.area.WheelValue
+import ai.pleos.playground.vehicle.api.model.area.WheelArea
+import work.integro.carling.game.CareIssue
+import work.integro.carling.game.CareRules
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -32,10 +40,26 @@ data class VehicleState(
     val stateOfCharge: Int? = null,
     val socRising: Boolean = false,
     val batteryLevel: Float? = null,
+    /** 바퀴별 타이어 공기압. 받은 바퀴만 들어 있다. */
+    val tirePressures: Map<String, Float> = emptyMap(),
+    /** 연료 잔량(%). 내연기관 차가 아니면 null. */
+    val fuelPercent: Int? = null,
+    /** 엔진오일 상태 이름(NORMAL, LOW, CRITICALLY_LOW, HIGH, ERROR). 모르면 null. */
+    val oilState: String? = null,
 ) {
     /** P단(또는 알 수 없음)이 아니면 주행 중으로 보고 터치를 막는다. */
     val isDriving: Boolean
         get() = gear != VehicleGear.GEAR_PARK && gear != VehicleGear.GEAR_UNKNOWN
+
+    /** 지금 차량 신호로 알 수 있는 돌봄 문제와, 판단할 수 있었던 항목(신호를 받은 항목). */
+    fun careStatus(): Pair<Set<CareIssue>, Set<CareIssue>> {
+        val issues = HashSet<CareIssue>(); val known = HashSet<CareIssue>()
+        if (tirePressures.isNotEmpty()) { known += CareIssue.TIRE; if (tirePressures.values.any { CareRules.isLowTire(it) }) issues += CareIssue.TIRE }
+        val fuelLow = fuelPercent?.let { it <= CareRules.LOW_FUEL_PERCENT } ?: stateOfCharge?.let { it <= CareRules.LOW_EV_PERCENT && !isCharging }
+        if (fuelLow != null) { known += CareIssue.FUEL; if (fuelLow) issues += CareIssue.FUEL }
+        oilState?.let { known += CareIssue.CAR_FAULT; if (CareRules.isOilFault(it)) issues += CareIssue.CAR_FAULT }
+        return issues to known
+    }
 
     /** 충전구가 열려 있고, 충전 스위치가 켜졌거나 SOC가 오르는 중. */
     val isCharging: Boolean
@@ -113,6 +137,31 @@ class VehicleSignals(context: Context, private val scope: CoroutineScope) {
         ev.registerEvChargePortOpen(chargePortListener)
         ev.registerEvBatteryStateOfCharge(socListener)
         ev.registerEvBatteryLevel(batteryListener)
+
+        // 차량 돌봄 신호 — 지원하지 않는 차종이면 조용히 건너뛴다
+        WheelValue.entries.filter { it != WheelValue.UNKNOWN }.forEach { w ->
+            val l = object : TirePressureListener {
+                override fun onTirePressureUpdated(p: Float?) {
+                    if (p != null) _state.update { it.copy(connected = true, tirePressures = it.tirePressures + (w.name to p)) }
+                }
+                override fun onFailed(e: Exception) = logFailure("tire ${w.name}", e)
+            }
+            runCatching { vehicle.getTire().registerTirePressure(WheelArea(w), l); tireListeners += w to l }.onFailure { logFailure("tire register", it) }
+        }
+        runCatching { vehicle.getFuel().registerFuelPercent(fuelListener) }.onFailure { logFailure("fuel register", it) }
+        runCatching { vehicle.getSafety().registerEngineOilLevelState(oilListener) }.onFailure { logFailure("oil register", it) }
+    }
+
+    private val tireListeners = mutableListOf<Pair<WheelValue, TirePressureListener>>()
+
+    private val fuelListener = object : FuelPercentListener {
+        override fun onFuelPercentUpdated(p: Int?) { if (p != null) _state.update { it.copy(connected = true, fuelPercent = p) } }
+        override fun onFailed(e: Exception) = logFailure("fuel", e)
+    }
+
+    private val oilListener = object : OilLevelStateListener {
+        override fun onOilLevelUpdated(state: OilLevelState?) { if (state != null) _state.update { it.copy(connected = true, oilState = state.name) } }
+        override fun onFailed(e: Exception) = logFailure("oil", e)
     }
 
     fun stop() {
@@ -124,6 +173,9 @@ class VehicleSignals(context: Context, private val scope: CoroutineScope) {
             vehicle.getEvBattery().unregisterEvChargePortOpen(chargePortListener)
             vehicle.getEvBattery().unregisterEvBatteryStateOfCharge(socListener)
             vehicle.getEvBattery().unregisterEvBatteryLevel(batteryListener)
+            tireListeners.forEach { (w, l) -> runCatching { vehicle.getTire().unregisterTirePressure(WheelArea(w), l) } }
+            runCatching { vehicle.getFuel().unregisterFuelPercent(fuelListener) }
+            runCatching { vehicle.getSafety().unregisterEngineOilLevelState(oilListener) }
             vehicle.release()
         }.onFailure { logFailure("stop", it) }
     }

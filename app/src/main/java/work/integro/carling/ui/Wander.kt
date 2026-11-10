@@ -1,5 +1,14 @@
 package work.integro.carling.ui
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.rememberInfiniteTransition
+import work.integro.carling.voice.Babble
+import work.integro.carling.game.CareIssue
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animate
@@ -16,6 +25,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -89,6 +100,11 @@ data class WanderCue(val id: Int, val move: SpecialMove?)
 private const val SPECIAL_CHANCE = 0.22f
 
 /** 카링 몸의 현재 자세. 모든 값은 px/도 단위이고 프레임마다 바뀐다. */
+/** 놀아주기 보상을 받는 끌기 거리(dp). */
+private const val PLAY_REWARD_DP = 600f
+
+private val PlayLines = listOf("야호! 더 빨리, 더 멀리!", "와아, 날아가는 것 같아요!", "이쪽! 저쪽! 신나요!")
+
 class CarlingMotion internal constructor(private val scope: CoroutineScope) {
     var x by mutableFloatStateOf(0f)
     var y by mutableFloatStateOf(0f)
@@ -107,6 +123,8 @@ class CarlingMotion internal constructor(private val scope: CoroutineScope) {
     internal var rangeY = 0f
     internal var px = 1f // 1dp의 px
     internal var temper = temperOf(null)
+    /** 차량 돌봄 문제로 기운이 없을 때 걷는 속도 배율. */
+    internal var careSpeed = 1f
     internal var specials: List<SpecialMove> = emptyList()
     internal var wanderEnabled = false
     private var job: Job? = null
@@ -171,6 +189,46 @@ class CarlingMotion internal constructor(private val scope: CoroutineScope) {
             }
             delay(1_500)
             startWandering()
+        }
+    }
+
+    // ---- 놀아주기: 누른 채 끌면 손가락을 따라 움직인다 ----
+    private var dragged = 0f
+    private var playRewarded = false
+
+    fun onDragStart() {
+        job?.cancel()
+        napping = false
+        dragged = 0f
+        playRewarded = false
+        lift = 0f
+        show("🎈", PlayLines.random())
+        squash = 0.92f
+    }
+
+    /** 끄는 만큼 따라오되 돌아다닐 수 있는 땅 안에서만 움직인다. 충분히 끌면 [onPlayed]를 한 번 부른다. */
+    fun onDrag(dx: Float, dy: Float, onPlayed: () -> Unit) {
+        x = (x + dx).coerceIn(-rangeX, rangeX)
+        y = (y + dy).coerceIn(-rangeY, rangeY)
+        // 아주 작은 흔들림으로 방향이 깜빡이지 않게, 분명히 옆으로 움직일 때만 돌아본다
+        if (kotlin.math.abs(dx) > 3f * px) facingLeft = dx < 0f
+        rotation = rotation * 0.7f + (dx / px * 0.8f).coerceIn(-15f, 15f) * 0.3f
+        dragged += kotlin.math.hypot(dx, dy) / px
+        if (!playRewarded && dragged >= PLAY_REWARD_DP) {
+            playRewarded = true
+            onPlayed()
+            show("💖", "하하, 신나요! 같이 놀아줘서 고마워요.")
+        }
+    }
+
+    fun onDragEnd() {
+        job?.cancel()
+        job = scope.launch {
+            rotation = 0f
+            squashTo(1.1f, 90)
+            squashTo(1f, 140)
+            delay(1_500)
+            if (wanderEnabled) startWandering()
         }
     }
 
@@ -310,7 +368,8 @@ class CarlingMotion internal constructor(private val scope: CoroutineScope) {
     }
 
     /** 휘어진 경로(2차 베지어)를 따라 통통 뛰며 걷는다. */
-    private suspend fun walkTo(target: Pair<Float, Float>, speedDp: Float, hopDp: Float, hopLenDp: Float = 60f) {
+    private suspend fun walkTo(target: Pair<Float, Float>, baseSpeedDp: Float, hopDp: Float, hopLenDp: Float = 60f) {
+        val speedDp = baseSpeedDp * careSpeed
         val (tx, ty) = target
         val sx = x
         val sy = y
@@ -401,6 +460,11 @@ class CarlingMotion internal constructor(private val scope: CoroutineScope) {
         emote = emoteText
         emoteKey++
         bubble = line
+        // 말풍선이 뜨면 옹알이로 말하고, 감정만 보이면 짧게 "뿅" (잠잘 때는 조용히)
+        when {
+            line != null -> Babble.say(line)
+            emoteText != null && emoteText != "💤" -> Babble.chirp()
+        }
         if (line != null) {
             val key = emoteKey
             scope.launch {
@@ -429,6 +493,8 @@ fun Wandering(
     tapLines: List<String>,
     onPetted: () -> Unit,
     modifier: Modifier = Modifier,
+    onPlayed: () -> Unit = {},
+    care: CareIssue? = null,
     specials: List<SpecialMove> = emptyList(),
     cue: WanderCue? = null,
     content: @Composable (napping: Boolean) -> Unit,
@@ -447,6 +513,10 @@ fun Wandering(
         motion.rangeY = with(density) { ((lowestTop - highestTop) / 2).toPx() }
         val groundCenter = (highestTop + lowestTop) / 2 + size / 2 - maxHeight / 2
         motion.temper = temperOf(personality)
+        motion.careSpeed = when (care) { CareIssue.TIRE -> 0.55f; CareIssue.FUEL -> 0.4f; CareIssue.CAR_FAULT -> 0.3f; null -> 1f }
+        // 공기압이 빠지면 절뚝, 아프면 몸을 떨고, 배고프면 축 처진다
+        val careAnim = rememberInfiniteTransition(label = "care")
+        val wobble by careAnim.animateFloat(-1f, 1f, infiniteRepeatable(tween(if (care == CareIssue.TIRE) 380 else 140), RepeatMode.Reverse), label = "wobble")
         motion.specials = specials
         motion.wanderEnabled = enabled
 
@@ -459,29 +529,99 @@ fun Wandering(
         }
         DisposableEffect(Unit) { onDispose { motion.stop() } }
 
+        // ---- 말랑 젤리: 몸의 움직임(가속도)을 받아 그림을 출렁이게 한다 ----
+        val jelly = remember { JellyBody() }
+        val jellyShader = remember { if (JellySupported) JellyShader() else null }
+        var jellyFrame by remember { mutableIntStateOf(0) }
+        val sizePx = with(density) { size.toPx() }
+        if (jellyShader != null) LaunchedEffect(Unit) {
+            var last = 0L
+            var px0 = 0f; var py0 = 0f; var vx0 = 0f; var vy0 = 0f
+            var sq0 = 1f; var sqv0 = 0f
+            var idleTick = 0
+            while (true) {
+                withFrameNanos { t ->
+                    if (last != 0L) {
+                        val dt = ((t - last) / 1e9f).coerceIn(1f / 240f, 1f / 20f)
+                        val bx = motion.x / sizePx
+                        val by = (motion.y - motion.lift) / sizePx
+                        val vx = (bx - px0) / dt
+                        val vy = (by - py0) / dt
+                        val sqv = (motion.squash - sq0) / dt
+                        var ax = ((vx - vx0) / dt).coerceIn(-60f, 60f)
+                        // 찌그러졌다 펴지는 순간의 반동도 위아래 출렁임으로 이어진다
+                        val ay = ((vy - vy0) / dt).coerceIn(-60f, 60f) - ((sqv - sqv0) / dt * 0.02f).coerceIn(-30f, 30f)
+                        // 그림은 왼쪽을 볼 때 좌우가 뒤집혀 그려지므로 힘의 방향도 뒤집는다
+                        if (motion.facingLeft) ax = -ax
+                        jelly.step(dt, ax, ay)
+                        px0 = bx; py0 = by; vx0 = vx; vy0 = vy; sq0 = motion.squash; sqv0 = sqv
+                    } else {
+                        px0 = motion.x / sizePx; py0 = (motion.y - motion.lift) / sizePx
+                    }
+                    last = t
+                    // 출렁이는 동안은 매 프레임, 가만히 있을 때는 숨쉬기만 초당 20번 정도 다시 그린다
+                    idleTick++
+                    if (!jelly.settled || idleTick % 3 == 0) jellyFrame++
+                }
+            }
+        }
+        // 누른 자리를 그림 안 좌표(0~1)로 바꿔 콕 누른다
+        fun pokeAt(ox: Float, oy: Float, strength: Float) {
+            val u = (ox / sizePx).coerceIn(0f, 1f)
+            jelly.poke(if (motion.facingLeft) 1f - u else u, (oy / sizePx).coerceIn(0f, 1f), strength)
+        }
+
         Box(
             Modifier
                 .offset { IntOffset(motion.x.roundToInt(), (groundCenter.toPx() + motion.y - motion.lift).roundToInt()) }
-                .size(size),
+                .size(size)
+                // 손가락 입력은 좌우 반전·회전이 걸리기 전의 바깥 상자에서 받는다.
+                // 안쪽 그림 상자에서 받으면 왼쪽을 볼 때(반전) 끄는 방향이 거꾸로 계산돼 덜덜 떨린다.
+                .pointerInput(enabled) {
+                    if (enabled) detectTapGestures { at ->
+                        pokeAt(at.x, at.y, 2.8f)
+                        motion.onTap(tapLines, onPetted)
+                    }
+                }
+                .pointerInput(enabled) {
+                    if (enabled) detectDragGestures(
+                        onDragStart = { at -> pokeAt(at.x, at.y, 1.4f); motion.onDragStart() },
+                        onDragEnd = { motion.onDragEnd() },
+                        onDragCancel = { motion.onDragEnd() },
+                    ) { change, amount ->
+                        change.consume()
+                        motion.onDrag(amount.x, amount.y, onPlayed)
+                    }
+                },
             contentAlignment = Alignment.Center,
         ) {
             // 그림만 좌우 반전·회전·찌그러짐 (말풍선 글자는 뒤집히지 않게)
             Box(
                 Modifier
                     .graphicsLayer {
+                        val careTilt = when (care) { CareIssue.TIRE -> 7f + wobble * 7f; CareIssue.CAR_FAULT -> wobble * 1.5f; else -> 0f }
+                        val droop = if (care == CareIssue.FUEL) 0.94f else 1f
                         scaleX = (if (motion.facingLeft) -1f else 1f) * (2f - motion.squash)
-                        scaleY = motion.squash
-                        rotationZ = motion.rotation
+                        scaleY = motion.squash * droop
+                        rotationZ = motion.rotation + careTilt
+                        if (care == CareIssue.TIRE) translationY = (if (wobble < 0f) -wobble else wobble) * 6f * this.density
                         transformOrigin = TransformOrigin(0.5f, 0.85f)
-                    }
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        enabled = enabled,
-                    ) { motion.onTap(tapLines, onPetted) },
+                        if (jellyShader != null) {
+                            @Suppress("UNUSED_EXPRESSION") jellyFrame // 매 프레임 이 층만 다시 그린다
+                            renderEffect = jellyShader.effect(this.size.width, this.size.height, jelly.displacements(breathing = !motion.napping))
+                        }
+                    },
             ) { content(motion.napping) }
 
             FloatingEmote(motion.emote, motion.emoteKey, Modifier.align(Alignment.TopCenter))
+            // 돌봄 문제 표시: 머리 위에 작은 아이콘이 계속 떠 있다
+            if (care != null && motion.emote == null) {
+                Text(
+                    when (care) { CareIssue.TIRE -> "💨"; CareIssue.FUEL -> "꼬르륵…"; CareIssue.CAR_FAULT -> "💧🤒" },
+                    fontSize = 34.sp,
+                    modifier = Modifier.align(Alignment.TopEnd).offset(y = (wobble * 4).dp),
+                )
+            }
             motion.bubble?.let { line ->
                 Box(Modifier.align(Alignment.TopCenter).offset(y = (-36).dp)) { Speech(line, maxWidth = 420.dp) }
             }

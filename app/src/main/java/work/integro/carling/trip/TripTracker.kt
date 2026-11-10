@@ -14,6 +14,7 @@ import work.integro.carling.navi.NaviPlaces
 import work.integro.carling.vehicle.SpeedMonitor
 import work.integro.carling.vehicle.VehicleSignals
 import work.integro.carling.game.WeatherRules
+import work.integro.carling.voice.Babble
 import work.integro.carling.voice.Voice
 import work.integro.carling.weather.WeatherClient
 
@@ -148,6 +149,12 @@ class TripTracker(
     }
 
     private fun say(text: String) {
-        if (store.data.voiceOn) voice.say(text)
+        if (!store.data.voiceOn) return
+        // 주행 중에도 카링이 말하는 느낌이 나도록 "뿅" 하고 나서 또렷한 음성으로 말한다
+        Babble.stage = store.data.reachedStage
+        Babble.lineage = store.data.lineage
+        Babble.enabled = true
+        Babble.chirp()
+        voice.say(text, delayMillis = 450)
     }
 }

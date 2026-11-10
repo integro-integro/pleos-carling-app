@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import work.integro.carling.data.Scene
+import work.integro.carling.game.DayPart
 
 // 설계서의 밤하늘 톤
 val Night = Color(0xFF0B1030)
@@ -51,13 +52,13 @@ private val CarlingColors = darkColorScheme(
 val LocalCompact = staticCompositionLocalOf { false }
 
 @Composable
-fun CarlingTheme(scene: Scene, showScene: Boolean, nightnessOverride: Float? = null, content: @Composable () -> Unit) {
-    val nightness = nightnessOverride ?: rememberRealNightness()
+fun CarlingTheme(scene: Scene, dayPartOverride: DayPart? = null, content: @Composable () -> Unit) {
+    val dayPart = dayPartOverride?.let { it to 1f } ?: rememberRealDayPart()
     MaterialTheme(colorScheme = CarlingColors) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val compact = maxWidth < 1100.dp || maxWidth < maxHeight
-            CompositionLocalProvider(LocalCompact provides compact, LocalNightness provides nightness) {
-                if (showScene) SceneBackground(scene, nightness) else NightSky()
+            CompositionLocalProvider(LocalCompact provides compact, LocalDayPart provides dayPart) {
+                SceneBackground(scene, dayPart)
                 content()
             }
         }

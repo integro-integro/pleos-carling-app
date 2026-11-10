@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -24,8 +25,13 @@ import work.integro.carling.vehicle.VehicleState
 
 @Composable
 fun CarlingApp(store: CarlingStore, vehicle: VehicleState, onLocationAllowed: () -> Unit = {}) {
-    // 알을 깨우기 전에는 고른 배경과 낮밤을 반영하지 않고 밤하늘로 둔다
-    CarlingTheme(store.data.scene, showScene = store.data.hatched, nightnessOverride = store.devNightness) {
+    // 처음에는 Dr.Pab의 심장 연구소에서 시작한다. 시간대는 차량 시계를 따른다.
+    // 차량 상태가 바뀔 때마다 돌봄 퀘스트를 맞춘다
+    LaunchedEffect(vehicle, store.devCare, store.data.hatched) {
+        val (issues, known) = vehicle.careStatus()
+        store.syncCare(issues, known)
+    }
+    CarlingTheme(store.data.scene, dayPartOverride = store.devDayPart) {
         // 주행 중에는 돌보기 화면을 아예 그리지 않는다 (안전 원칙: 주행 중 터치 없음)
         if (vehicle.isDriving) {
             DrivingMode(store.data, store.driveGreeting)
@@ -52,11 +58,20 @@ private fun ParkedMode(store: CarlingStore, vehicle: VehicleState, onLocationAll
             } else null,
         )
         // 2 · 트립카드 #001 → 알을 톡 터치해 깨우기
-        !data.hatched -> AwakenScreen(data, onWake = store::hatch)
+        !data.hatched -> AwakenScreen(
+            data,
+            xpIfSaved = data.tripCards.firstOrNull()?.let(store::saveXpFor) ?: 0,
+            onSave = { data.tripCards.firstOrNull()?.let { store.saveTripCard(it.number, force = true) } },
+            onWake = store::hatch,
+        )
         // 3 · 이름 지어주기
         name == null -> NameScreen(personality, onName = store::giveName, onBack = store::onboardingBack)
         // 4 · 첫 교감 — 쓰다듬기
-        !data.firstPetDone -> FirstPetScreen(name, personality, onPet = store::completeFirstPet, onBack = store::onboardingBack)
+        !data.firstPetDone -> FirstPetScreen(
+            name, personality,
+            onPet = store::pet, onFeed = store::feed, onPlay = store::play,
+            onDone = store::completeFirstPet, onBack = store::onboardingBack,
+        )
         // 5 · 지도의 첫 불빛, 내일의 약속
         !data.guideSeen -> FirstMapScreen(name, personality, onDone = store::finishGuide, onBack = store::onboardingBack)
         data.locationConsent == null || data.needsLocationReconsent -> LocationConsentScreen(personality, onAnswer = { allowed ->
@@ -90,11 +105,12 @@ private fun DrivingMode(data: CarlingData, greeting: String?) {
                     item = data.equippedItem,
                     mood = personality,
                     lineage = data.lineage,
+                    vehicle = data.ridingVehicle,
                 )
             }
             Spacer(Modifier.width(12.dp))
             Text(
-                if (!data.hatched) "(알 속에서 작은 두근거림이 느껴진다…)" else greeting ?: personality.drivingLine,
+                if (!data.hatched) "(알 속에서 작은 두근거림이 느껴진다…)" else data.careQuests.minByOrNull { it.priority }?.drivingLine ?: greeting ?: personality.drivingLine,
                 fontSize = 28.sp,
                 color = Ink,
             )
