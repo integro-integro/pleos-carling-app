@@ -43,8 +43,8 @@ fun interactionFor(item: RoomItem): Interaction {
     fun seat(line: String, sx: Float, sy: Float, action: Action = Action.SIT, emote: String = "☺️") =
         Interaction(action, line, emote, ax, ay, sx, sy)
     return when (item) {
-        RoomItem.BED, RoomItem.BEDDING -> seat("하암… 잠깐 잘게요.", .14f, .66f, Action.SLEEP, "💤")
-        RoomItem.CUSHION -> seat("폭신폭신, 편해요~", .385f, .73f)
+        RoomItem.BED, RoomItem.BEDDING -> seat("하암… 잠깐 잘게요.", .865f, .68f, Action.SLEEP, "💤")
+        RoomItem.CUSHION -> seat("폭신폭신, 편해요~", .36f, .75f)
         RoomItem.ARMCHAIR -> seat("푹신한 의자 최고!", .30f, .745f)
         RoomItem.DINING_CHAIRS -> seat("밥 먹을 준비 끝!", .455f, .655f)
         RoomItem.DESK_CHAIR -> seat("오늘은 뭘 만들어 볼까?", .42f, .69f)

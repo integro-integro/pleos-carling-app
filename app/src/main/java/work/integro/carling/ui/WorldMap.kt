@@ -24,7 +24,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.res.imageResource
+import androidx.compose.ui.unit.IntSize
+import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -57,22 +63,15 @@ fun WorldMap(data: CarlingData, onClose: () -> Unit) {
         val mapH = mapW / MAP_RATIO
         Box(Modifier.requiredSize(mapW, mapH)) {
             Image(painterResource(R.drawable.world_map), contentDescription = "카링월드 지도", contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize())
-            // 안개: 열리지 않은 지역을 하얀 구름으로 덮는다
-            Canvas(Modifier.fillMaxSize()) {
-                WorldArea.entries.filterNot { it.isOpen(data.form) }.forEach { a ->
+            // 안개: 지도 전체를 두꺼운 구름으로 덮고, 열린 지역만 동그랗게 걷어 낸다. 잠긴 곳은 전혀 보이지 않는다.
+            val fog = ImageBitmap.imageResource(R.drawable.world_fog)
+            Canvas(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
+                drawImage(fog, dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()))
+                WorldArea.entries.filter { it.isOpen(data.form) }.forEach { a ->
                     val c = Offset(a.x * size.width, a.y * size.height)
-                    // 겹겹이 깔아 뭉게구름 같은 안개를 만든다
-                    listOf(Offset(0f, 0f), Offset(-0.05f, 0.03f), Offset(0.05f, 0.02f), Offset(0f, -0.04f)).forEachIndexed { k, d ->
-                        val cc = c + Offset(d.x * size.width, d.y * size.height)
-                        val r = size.width * (if (k == 0) 0.12f else 0.08f)
-                        drawCircle(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.97f), Color(0xFFF3EEFF).copy(alpha = 0.85f), Color.White.copy(alpha = 0f)), cc, r), r, cc)
-                    }
+                    val r = size.width * 0.15f
+                    drawCircle(Brush.radialGradient(0.55f to Color.Black, 1f to Color.Transparent, center = c, radius = r), r, c, blendMode = BlendMode.DstOut)
                 }
-                // 지금 있는 곳은 따뜻한 빛
-                val home = WorldArea.HOME
-                val hc = Offset(home.x * size.width, home.y * size.height)
-                val hr = size.width * 0.1f
-                drawCircle(Brush.radialGradient(listOf(Color(0x66FFF3B0), Color.Transparent), hc, hr), hr, hc)
             }
             WorldArea.entries.forEach { a ->
                 val open = a.isOpen(data.form)
@@ -117,7 +116,7 @@ fun WorldMap(data: CarlingData, onClose: () -> Unit) {
             Text("함께 달린 만큼, 우리의 세계가 자라요.", fontSize = 19.sp, color = Color.White)
         }
         Box(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
-            Speech("진화할 때마다 안개가 걷히고 새로운 곳이 열려요!", maxWidth = 520.dp)
+            Speech("구름 너머에 아직 모르는 곳들이 있어요. 진화할 때마다 구름이 걷혀요!", maxWidth = 560.dp)
         }
         Button(onClick = onClose, modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp).size(width = 220.dp, height = 68.dp)) {
             Text("🏠 집으로", fontSize = 24.sp)

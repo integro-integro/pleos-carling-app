@@ -61,7 +61,7 @@ val EGG_SPOT = RoomSpot(.50f, .79f)
 
 /** 공간마다 가구와 겹치지 않는 빈 바닥. */
 private fun freeSpots(space: Space): List<RoomSpot> = when (space) {
-    Space.BEDROOM -> listOf(RoomSpot(.50f, .87f), RoomSpot(.38f, .87f), RoomSpot(.62f, .87f), RoomSpot(.30f, .86f), RoomSpot(.72f, .86f), RoomSpot(.80f, .80f), RoomSpot(.50f, .77f))
+    Space.BEDROOM -> listOf(RoomSpot(.50f, .87f), RoomSpot(.38f, .88f), RoomSpot(.62f, .88f), RoomSpot(.28f, .86f), RoomSpot(.45f, .72f), RoomSpot(.30f, .70f))
     Space.LIVING -> listOf(RoomSpot(.50f, .88f), RoomSpot(.40f, .87f), RoomSpot(.62f, .87f), RoomSpot(.70f, .86f), RoomSpot(.45f, .80f), RoomSpot(.66f, .70f))
     Space.KITCHEN -> listOf(RoomSpot(.50f, .88f), RoomSpot(.38f, .87f), RoomSpot(.65f, .89f), RoomSpot(.36f, .76f), RoomSpot(.45f, .70f))
     Space.BATHROOM -> listOf(RoomSpot(.50f, .88f), RoomSpot(.38f, .87f), RoomSpot(.62f, .86f), RoomSpot(.56f, .79f), RoomSpot(.68f, .76f))
@@ -99,6 +99,9 @@ class CarlingMotion internal constructor(private val scope: CoroutineScope) {
     internal var px = 1f
     internal var placed: Set<RoomItem> = emptySet()
     internal var space: Space = Space.BEDROOM
+
+    /** 둘러보기 정도(-1~1). 앞쪽에 있을수록 카링도 가구처럼 더 움직인다. */
+    var pan by mutableFloatStateOf(0f)
     private var job: Job? = null
     private var positioned = false
     private var travelling = false
@@ -475,7 +478,7 @@ fun CarlingActor(
             Modifier
                 .offset {
                     IntOffset(
-                        (centerX + motion.x - sizePx / 2).roundToInt(),
+                        (centerX + motion.x - sizePx / 2 + parallaxShift(motion.pan, motion.footFraction, true).toPx()).roundToInt(),
                         (centerY + motion.y - motion.lift - sizePx * FEET_AT).roundToInt(),
                     )
                 }

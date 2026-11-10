@@ -99,12 +99,12 @@ fun fixturesOf(space: Space): List<Fixture> = when (space) {
 
 /** 카링월드의 지역. 지도 그림 대비 위치와, 열리는 진화 단계. */
 enum class WorldArea(val label: String, val icon: String, val x: Float, val y: Float, val needs: String, val level: Int, val form: Form?) {
-    HOME("카링의 집", "🏠", .15f, .56f, "처음부터", 1, Form.EGG),
-    GARDEN("카링의 정원", "🌷", .36f, .55f, "계열 진화 1", 20, Form.EVO1),
-    FOREST("동산·숲", "🌳", .49f, .23f, "계열 진화 3", 50, null),
-    BEACH("집앞 해변", "🏖️", .80f, .63f, "계열 진화 2", 30, null),
-    OBSERVATORY("하늘 전망대", "🔭", .74f, .21f, "계열 진화 4", 70, null),
-    SKY_ISLAND("하늘 섬", "☁️", .88f, .13f, "계열 진화 5", 99, null);
+    HOME("카링의 집", "🏠", 0.12f, 0.74f, "처음부터", 1, Form.EGG),
+    GARDEN("카링의 정원", "🌷", 0.38f, 0.66f, "계열 진화 1", 20, Form.EVO1),
+    FOREST("동산·숲", "🌳", 0.44f, 0.3f, "계열 진화 3", 50, null),
+    BEACH("집앞 해변", "🏖️", 0.72f, 0.8f, "계열 진화 2", 30, null),
+    OBSERVATORY("하늘 전망대", "🔭", 0.68f, 0.24f, "계열 진화 4", 70, null),
+    SKY_ISLAND("하늘 섬", "☁️", 0.9f, 0.12f, "계열 진화 5", 99, null);
 
     /** 진화 단계에 도달해 안개가 걷혔는지. 아직 외형이 없는 단계([form] = null)는 잠겨 있다. */
     fun isOpen(current: Form): Boolean = form != null && current >= form

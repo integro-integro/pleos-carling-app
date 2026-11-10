@@ -4,7 +4,9 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +60,9 @@ import work.integro.carling.game.arrivalExit
 import work.integro.carling.game.exitsOf
 import work.integro.carling.game.interactionFor
 import work.integro.carling.voice.Babble
+
+/** 둘러보기 끝까지 가는 데 필요한 손가락 이동량(확대로 넘친 폭의 배수). */
+private const val LOOK_DRAG_RATIO = 3.5f
 
 /** 주차 후 지난 운행 결과를 보여주는 순서: 카드 → 레벨 → 알의 금 → 새 아이템. */
 private enum class Reveal { NONE, CARD, LEVEL, ITEM }
@@ -169,19 +174,51 @@ fun HomeScreen(store: CarlingStore) {
             doorHint = null
         }
     }
+    // 축소하면 방 전체가 보이므로 둘러보기를 되돌린다
+    LaunchedEffect(zoomedOut) { if (zoomedOut) motion.pan = 0f }
+    var lookHint by remember { mutableStateOf(true) }
+    LaunchedEffect(motion.pan) { if (motion.pan != 0f) lookHint = false }
     val zoom by animateFloatAsState(if (zoomedOut) ZOOM_OUT else ZOOM_IN, tween(450), label = "zoom")
 
     Box(Modifier.fillMaxSize()) {
         RoomWorld(
             space = data.currentSpace,
             zoom = zoom,
+            pan = if (zoomedOut) 0f else motion.pan,
             onExit = ::onExit,
             onItem = { onTouch(interactionFor(it)) },
             onFixture = { onTouch(it.interaction) },
             modifier = Modifier.pointerInput(Unit) {
-                // 두 손가락으로 벌리면 확대, 오므리면 축소
-                detectTransformGestures { _, _, scale, _ ->
-                    if (scale < 0.97f) zoomedOut = true else if (scale > 1.03f) zoomedOut = false
+                // 한 손가락으로 좌우로 밀면 방을 둘러보고, 두 손가락으로 벌리거나 오므리면 확대·축소한다.
+                // 미는 동작은 Initial 단계에서 가로채 소비하므로, 손가락 아래에서 함께 움직인 가구가 눌린 것으로 처리되지 않는다.
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                    var dragging = false
+                    var startSpan = 0f
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val pressed = event.changes.filter { it.pressed }
+                        if (pressed.isEmpty()) break
+                        if (pressed.size >= 2) {
+                            val span = (pressed[0].position - pressed[1].position).getDistance()
+                            if (startSpan == 0f) startSpan = span
+                            else if (span < startSpan * 0.85f) zoomedOut = true
+                            else if (span > startSpan * 1.15f) zoomedOut = false
+                            event.changes.forEach { it.consume() }
+                            dragging = true
+                            continue
+                        }
+                        val change = pressed.first()
+                        val total = change.position.x - down.position.x
+                        if (!dragging && kotlin.math.abs(total) > viewConfiguration.touchSlop) dragging = true
+                        if (dragging) {
+                            val range = maxPanPx(ZOOM_IN, size.width.toFloat())
+                            val dx = change.position.x - change.previousPosition.x
+                            // 손가락이 움직인 만큼보다 천천히 따라오게 해서 한 번에 끝까지 넘어가지 않게 한다
+                            if (range > 0f && !zoomedOut) motion.pan = (motion.pan + dx / (range * LOOK_DRAG_RATIO)).coerceIn(-1f, 1f)
+                            event.changes.forEach { it.consume() }
+                        }
+                    }
                 }
             },
             // 새 아이템은 카드와 레벨을 본 뒤에 놓인다(데이터는 이미 저장돼 있다)
@@ -259,6 +296,19 @@ fun HomeScreen(store: CarlingStore) {
                 .padding(horizontal = 16.dp, vertical = 6.dp),
         )
         doorHint?.let { Notice("🚪", it, Modifier.align(Alignment.TopCenter).zIndex(6f)) }
+        if (lookHint && !zoomedOut && !overlayOpen && data.introSeen) {
+            Text(
+                "👆 좌우로 밀어서 방을 둘러보세요",
+                fontSize = 19.sp,
+                color = Ink,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 108.dp)
+                    .zIndex(5f)
+                    .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(50))
+                    .padding(horizontal = 18.dp, vertical = 8.dp),
+            )
+        }
 
         if (showDev && BuildConfig.DEBUG) DevPanel(store, Modifier.align(Alignment.TopEnd).padding(top = 76.dp, end = 14.dp).zIndex(7f))
 
@@ -395,6 +445,7 @@ private val HelpSections = listOf(
     Triple("🌱", "진화", "최소 레벨, 친밀도, 퀘스트를 모두 채우면 '성장과 진화'에서 진화할 수 있어요. Lv.10 이상이면 아기 카링이 깨어나고, Lv.20 이상이면 계열을 골라 진화해요."),
     Triple("🚪", "공간", "Lv.10이 되면 '공간' 메뉴가 생기고 거실이 열려요. 주방(Lv.13)·화장실(Lv.16)·작업실(Lv.18)은 잠겨 있다가 레벨이 오르면 열려요. 계열 진화 1부터는 정원 같은 더 넓은 공간이 이어질 예정이에요."),
     Triple("🏠", "2층 집", "거실이 집의 중심이에요. 거실의 계단으로 2층(방·작업실), 아치로 주방, 문으로 화장실에 가요. 다른 공간에서는 왼쪽 문으로 나가요."),
+    Triple("👆", "밀어서 둘러보기", "방을 좌우로 밀면 고개를 돌리듯 옆벽과 문·계단 쪽이 보여요. 앞쪽 가구가 더 많이 움직여 깊이감이 생겨요."),
     Triple("🔍", "확대·축소와 문", "오른쪽의 축소 버튼(또는 두 손가락 오므리기)을 누르면 방 전체와 문·계단이 보여요. 문을 누르면 카링이 그쪽으로 걸어가요."),
     Triple("👆", "가구 누르기", "가구를 누르면 카링이 다가가요. 소파에 앉고, 침대에서 자고, TV를 보며 즐거워하고, 커피를 마시면 맛있다고 해요. 보상은 없는 놀이예요."),
     Triple("🗺️", "카링월드", "아래 '카링월드'에서 지도를 볼 수 있어요. 지금 있는 집은 밝게 빛나고, 정원·해변·숲·하늘 전망대·하늘 섬은 진화할 때마다 안개가 걷혀요."),

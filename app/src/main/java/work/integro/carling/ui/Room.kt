@@ -55,6 +55,19 @@ import work.integro.carling.game.fixturesOf
 /** 방 그림의 가로/세로 비율. */
 private const val ROOM_RATIO = 2336f / 1744f
 
+/** 둘러볼 때 고개를 돌리는 각도(도). */
+private const val LOOK_TILT_DEG = 9f
+
+/** 앞쪽(카메라에 가까운) 가구가 벽보다 더 움직이는 정도. 깊이감이 생긴다. */
+private val PARALLAX = 26.dp
+
+/** 확대된 만큼만 옆으로 밀 수 있다. */
+fun maxPanPx(zoom: Float, width: Float): Float = ((zoom - 1f) * width / 2f).coerceAtLeast(0f)
+
+/** 바닥 가구는 앞에 있을수록 더 많이 움직인다. 벽에 붙은 것은 배경과 같이 움직인다. */
+fun parallaxShift(pan: Float, foot: Float, onFloor: Boolean): Dp =
+    if (!onFloor) 0.dp else PARALLAX * (pan * ((foot - 0.55f) * 2.2f).coerceIn(0f, 1f))
+
 /** 확대·축소 배율. 확대하면 왼쪽 벽의 문이 화면 밖으로 나간다. */
 const val ZOOM_IN = 1.25f
 const val ZOOM_OUT = 1f
@@ -78,6 +91,7 @@ fun RoomWorld(
     newItems: Set<RoomItem>,
     motion: CarlingMotion,
     zoom: Float,
+    pan: Float,
     onExit: (Exit) -> Unit,
     onItem: (RoomItem) -> Unit,
     onFixture: (Fixture) -> Unit,
@@ -93,6 +107,14 @@ fun RoomWorld(
                 scaleX = zoom
                 scaleY = zoom
                 transformOrigin = TransformOrigin(0.5f, ZOOM_PIVOT_Y)
+                // 밀어서 둘러보기: 확대된 만큼 옆으로 움직이고, 고개를 돌린 것처럼 살짝 기울어진다
+                translationX = pan * maxPanPx(zoom, size.width) * 1.2f
+                rotationY = pan * LOOK_TILT_DEG
+                // 기울어진 쪽 가장자리가 비어 보이지 않게 그만큼 살짝 키운다
+                val cover = 1f + kotlin.math.abs(pan) * 0.05f
+                scaleX = zoom * cover
+                scaleY = zoom * cover
+                cameraDistance = 18f * density
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -139,7 +161,7 @@ fun RoomWorld(
             .sortedBy { it.depth }
             .forEach { item ->
                 key(item) {
-                    PlacedItem(item, item in newItems, roomW, roomH, left, top, motion) { onItem(item) }
+                    PlacedItem(item, item in newItems, roomW, roomH, left + parallaxShift(pan, item.foot, item.beside), top, motion) { onItem(item) }
                 }
             }
 
@@ -223,7 +245,8 @@ private fun BoxScope.LampGlow(on: Boolean, roomW: Dp, roomH: Dp, left: Dp, top: 
     if (amount <= 0f) return
     val r = roomW * 0.17f
     val centerX = left + roomW * RoomItem.LAMP.x
-    val centerY = top + roomH * 0.49f
+    // 스탠드 갓 높이(아이템 바닥에서 그림 높이의 3/4 위)
+    val centerY = top + roomH * RoomItem.LAMP.foot - roomW * RoomItem.LAMP.width * RoomItem.LAMP.aspect * 0.75f
     Canvas(
         Modifier
             .align(Alignment.TopStart)
