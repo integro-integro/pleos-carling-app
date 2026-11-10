@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -20,31 +20,31 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import work.integro.carling.data.Scene
-import work.integro.carling.game.DayPart
 
-// 설계서의 밤하늘 톤
-val Night = Color(0xFF0B1030)
-val NightDeep = Color(0xFF070A22)
-val Panel = Color(0xFF1A2052)
-val PanelLight = Color(0xFF252C6B)
-val Ink = Color(0xFFF2F4FF)
-val Muted = Color(0xFFA9B0D9)
-val Accent = Color(0xFF8E9BFF)
-val Gold = Color(0xFFFFD98A)
+// 카링월드의 파스텔 톤
+val Cream = Color(0xFFFFF7F1)
+val Blush = Color(0xFFFFE3E8)
+val Ink = Color(0xFF5B3A44)
+val Muted = Color(0xFF9B7C86)
+val Rose = Color(0xFFEF7F9E)
+val RoseDeep = Color(0xFFD9607F)
+val Honey = Color(0xFFE9A23B)
+val Mint = Color(0xFF5ED6A5)
+val Sky = Color(0xFF7CC4F2)
+val Scrim = Color(0xB03A2A3A)
 
-private val CarlingColors = darkColorScheme(
-    primary = Accent,
-    onPrimary = NightDeep,
-    secondary = Gold,
-    surface = Panel,
+private val CarlingColors = lightColorScheme(
+    primary = Rose,
+    onPrimary = Color.White,
+    secondary = Honey,
+    surface = Cream,
     onSurface = Ink,
-    background = Night,
+    background = Cream,
     onBackground = Ink,
-    outline = Color(0xFF4A528F),
-    secondaryContainer = PanelLight,
+    outline = Color(0xFFE7C4CE),
+    secondaryContainer = Blush,
     onSecondaryContainer = Ink,
-    surfaceVariant = PanelLight,
+    surfaceVariant = Blush,
     onSurfaceVariant = Muted,
 )
 
@@ -52,33 +52,30 @@ private val CarlingColors = darkColorScheme(
 val LocalCompact = staticCompositionLocalOf { false }
 
 @Composable
-fun CarlingTheme(scene: Scene, dayPartOverride: DayPart? = null, content: @Composable () -> Unit) {
-    val dayPart = dayPartOverride?.let { it to 1f } ?: rememberRealDayPart()
+fun CarlingTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = CarlingColors) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(Cream)) {
             val compact = maxWidth < 1100.dp || maxWidth < maxHeight
-            CompositionLocalProvider(LocalCompact provides compact, LocalDayPart provides dayPart) {
-                SceneBackground(scene, dayPart)
-                content()
-            }
+            CompositionLocalProvider(LocalCompact provides compact) { content() }
         }
     }
 }
 
+/** 카링의 말풍선. */
 @Composable
 fun Speech(text: String, modifier: Modifier = Modifier, maxWidth: Dp = 760.dp) {
     val compact = LocalCompact.current
     Text(
         text,
-        fontSize = if (compact) 24.sp else 30.sp,
-        lineHeight = if (compact) 34.sp else 42.sp,
+        fontSize = if (compact) 22.sp else 26.sp,
+        lineHeight = if (compact) 32.sp else 36.sp,
         color = Ink,
         textAlign = TextAlign.Center,
         modifier = modifier
             .widthIn(max = maxWidth)
-            .background(PanelLight.copy(alpha = 0.9f), RoundedCornerShape(28.dp))
-            .border(1.dp, Accent.copy(alpha = 0.35f), RoundedCornerShape(28.dp))
-            .padding(horizontal = 28.dp, vertical = 16.dp),
+            .background(Color.White.copy(alpha = 0.95f), RoundedCornerShape(26.dp))
+            .border(2.dp, Rose.copy(alpha = 0.45f), RoundedCornerShape(26.dp))
+            .padding(horizontal = 26.dp, vertical = 12.dp),
     )
 }
 
@@ -86,8 +83,8 @@ fun Speech(text: String, modifier: Modifier = Modifier, maxWidth: Dp = 760.dp) {
 fun PanelBox(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Box(
         modifier
-            .background(Panel.copy(alpha = 0.92f), RoundedCornerShape(28.dp))
-            .border(1.dp, Accent.copy(alpha = 0.25f), RoundedCornerShape(28.dp))
-            .padding(24.dp),
+            .background(Cream, RoundedCornerShape(30.dp))
+            .border(2.dp, Rose.copy(alpha = 0.35f), RoundedCornerShape(30.dp))
+            .padding(26.dp),
     ) { content() }
 }

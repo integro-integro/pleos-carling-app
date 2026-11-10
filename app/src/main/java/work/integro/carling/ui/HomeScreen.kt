@@ -1,10 +1,10 @@
 package work.integro.carling.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.ui.draw.alpha
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -12,560 +12,445 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import work.integro.carling.voice.Babble
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
+import kotlinx.coroutines.delay
 import work.integro.carling.BuildConfig
 import work.integro.carling.data.CarlingData
 import work.integro.carling.data.CarlingStore
-import work.integro.carling.data.Scene
 import work.integro.carling.data.Personality
-import work.integro.carling.data.recentDestinations
 import work.integro.carling.game.DevSimulator
-import work.integro.carling.game.DayPart
-import work.integro.carling.game.CareIssue
+import work.integro.carling.game.Form
 import work.integro.carling.game.GrowthRules
-import work.integro.carling.game.Light
 import work.integro.carling.game.Lineage
-import work.integro.carling.game.Vehicle
-import work.integro.carling.game.VEHICLE_GIFT_STAGE
-import work.integro.carling.game.VEHICLE_PICK_STAGE
-import work.integro.carling.vehicle.VehicleState
+import work.integro.carling.game.Exit
+import work.integro.carling.game.Interaction
+import work.integro.carling.game.Space
+import work.integro.carling.game.arrivalExit
+import work.integro.carling.game.exitsOf
+import work.integro.carling.game.interactionFor
+import work.integro.carling.voice.Babble
 
-/** 계열이 정해졌으면 계열 색, 아니면 공통 하늘빛. */
-fun CarlingData.glowColor(): Color = lineage?.let { Color(it.color) } ?: BaseGlow
+/** 주차 후 지난 운행 결과를 보여주는 순서: 카드 → 레벨 → 알의 금 → 새 아이템. */
+private enum class Reveal { NONE, CARD, LEVEL, ITEM }
 
+private class EvolutionShow(val from: CarlingArt, val to: CarlingArt, val title: String, val line: String)
+
+/** 카링월드 홈: 큰 방 화면, 카링, 레벨·XP, 함께 달린 날, 새 변화. */
 @Composable
-fun HomeScreen(
-    store: CarlingStore,
-    data: CarlingData,
-    personality: Personality,
-    name: String,
-    vehicle: VehicleState,
-    onLocationAllowed: () -> Unit,
-) {
-    val compact = LocalCompact.current
-    var greetedToday by remember { mutableStateOf(false) }
-    var showTripCards by remember { mutableStateOf(false) }
+fun HomeScreen(store: CarlingStore) {
+    val data = store.data
+    val personality = data.personality ?: Personality.LUMI
+    val level = data.level
+
+    var showCards by remember { mutableStateOf(false) }
+    var showGrowth by remember { mutableStateOf(false) }
+    var showSpaces by remember { mutableStateOf(false) }
     var showDex by remember { mutableStateOf(false) }
-    var showCare by remember { mutableStateOf(false) }
-    var openCard by remember { mutableStateOf<Int?>(null) }
-    var showMap by remember { mutableStateOf(false) }
-    var showScenes by remember { mutableStateOf(false) }
-    var showItems by remember { mutableStateOf(false) }
-    var showTutorial by remember { mutableStateOf(false) }
-    var justFed by remember { mutableStateOf(false) }
-    var playHint by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { greetedToday = store.greetIfNewDay() }
+    var zoomedOut by remember { mutableStateOf(false) }
+    var travel by remember { mutableStateOf<Space?>(null) }
+    var doorHint by remember { mutableStateOf<String?>(null) }
+    var showWorld by remember { mutableStateOf(false) }
+    var exitChoice by remember { mutableStateOf<Exit?>(null) }
+    var showHelp by remember { mutableStateOf(false) }
+    var showDev by remember { mutableStateOf(false) }
+    var pickLineage by remember { mutableStateOf(false) }
+    var evolution by remember { mutableStateOf<EvolutionShow?>(null) }
 
-    val careTop = data.careQuests.minByOrNull { it.priority }
-    val line = when {
-        careTop != null -> careTop.line
-        vehicle.isCharging || vehicle.chargePortOpen -> personality.mealLine
-        playHint -> "저를 누른 채 이리저리 끌어 주세요. 같이 놀아요!"
-        justFed -> "냠냠, 고마워요! 배불러요."
-        greetedToday -> "오늘도 만났네요! ${personality.greeting}"
-        data.tripCount == 0 -> "멀리 가지 않아도 돼요. 매일 만나면 충분해요."
-        else -> personality.greeting
+    val reveal = when {
+        data.unseenCards.isNotEmpty() -> Reveal.CARD
+        data.seenLevel < level -> Reveal.LEVEL
+        data.newItems.isNotEmpty() -> Reveal.ITEM
+        else -> Reveal.NONE
     }
+    val overlayOpen = showCards || showGrowth || showSpaces || showDex || showWorld || exitChoice != null || travel != null || showHelp || pickLineage || evolution != null ||
+        !data.introSeen || reveal == Reveal.CARD || (data.hatched && data.name == null)
 
-    val carlingSize = if (compact) 360.dp else 480.dp
-    // 변화 장면을 보기 전까지는 옛 모습을 유지해, 새 모습이 미리 보이지 않게 한다
-    val celebrated = data.celebratedStage
-    val growing = celebrated != null && data.reachedStage > celebrated
-    LaunchedEffect(celebrated, data.reachedStage) {
-        if (celebrated == null || celebrated > data.reachedStage) store.markStageCelebrated()
-    }
-    // 성장·색 변화·진화 모두 같은 변화 장면을 쓴다(서비스 시각화 V3)
-    val evolving = growing
-    // 트립카드 등 다른 창을 다 닫은 뒤에 재생한다. 주행 중에는 이 화면 자체가 없어 정차 후로 미뤄진다.
-    val noDialog = data.pendingCard == null && openCard == null && !showTripCards && !showDex && !showCare && !showMap && !showItems && !showScenes && !showTutorial
-    val lookStage = store.devLook?.first ?: if (growing) celebrated else data.reachedStage
-    var cueId by remember { mutableIntStateOf(0) }
-    var cue by remember { mutableStateOf<WanderCue?>(null) }
-    val lookLineage = store.devLook?.second ?: data.lineage
-    // 카링 목소리(옹알이)는 보이는 모습의 단계·계열을 따르고, 음성 켜짐/꺼짐을 같이 쓴다
-    LaunchedEffect(lookStage, lookLineage, data.voiceOn) {
-        Babble.stage = lookStage
-        Babble.lineage = lookLineage
+    LaunchedEffect(data.form, data.lineage, data.voiceOn) {
+        Babble.stage = Babble.stageOf(data.form)
+        Babble.lineage = data.lineage
         Babble.enabled = data.voiceOn
     }
-    val playground = @Composable { areaModifier: Modifier ->
-        Wandering(
-            size = carlingSize,
-            enabled = data.pendingCard == null && !showTripCards && !showDex && openCard == null && !showMap && !showTutorial && !showScenes && !showItems && !(evolving && noDialog),
-            specials = GrowthRules.knownMoves(lookStage, lookLineage),
-            cue = cue,
-            personality = personality,
-            tapLines = personality.tapLines,
-            onPetted = store::pet,
-            onPlayed = { store.play(); playHint = false },
-            care = careTop,
-            modifier = areaModifier,
-        ) { napping ->
-            Box(contentAlignment = Alignment.BottomEnd) {
-                CarlingDrawing(
-                    size = carlingSize,
-                    stageIndex = lookStage,
-                    glow = lookLineage?.let { Color(it.color) } ?: BaseGlow,
-                    item = data.equippedItem,
-                    mood = personality,
-                    lineage = lookLineage,
-                    asleep = napping,
-                    vehicle = data.ridingVehicle,
-                )
-                if (vehicle.chargePortOpen) Text("🍙", fontSize = 72.sp)
+    LaunchedEffect(reveal, level) {
+        when (reveal) {
+            Reveal.LEVEL -> {
+                delay(2_800)
+                store.ackLevel()
             }
+            Reveal.ITEM -> {
+                delay(4_200)
+                store.ackItems()
+            }
+            else -> Unit
         }
     }
-    val caption = @Composable {
-        Column(Modifier.onScene(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(name, fontSize = 42.sp, fontWeight = FontWeight.Bold, color = Ink)
-            Text(GrowthRules.stageName(lookStage, lookLineage), fontSize = 22.sp, color = Gold)
+
+    // 금이 늘어나는 순간은 레벨 알림과 함께 보여준다. 그 전까지는 지난 모습을 유지한다.
+    val shownLevel = if (reveal == Reveal.CARD) data.seenLevel else level
+    val art = carlingArt(data.form, data.lineage, shownLevel)
+    val motion = rememberCarlingMotion()
+    val eggCracking = reveal == Reveal.LEVEL && !data.hatched && GrowthRules.eggStage(level) != GrowthRules.eggStage(data.seenLevel)
+
+    fun startEvolution(lineage: Lineage?) {
+        val fromArt = carlingArt(data.form, data.lineage, level)
+        val next = data.form.next ?: return
+        store.evolve(lineage)
+        val toArt = carlingArt(next, lineage ?: data.lineage, level)
+        evolution = when (next) {
+            Form.BABY -> EvolutionShow(fromArt, toArt, "아기 카링이 깨어났어요!", "알 속의 빛이 민트색 심장이 되었어요.")
+            else -> EvolutionShow(fromArt, toArt, "${lineage?.carlingName ?: next.label} 모습이 되었어요!", "다음 공간 '정원'은 곧 열릴 거예요.")
         }
-        Spacer(Modifier.height(14.dp))
-        Speech(line)
     }
-    var dockOpen by rememberSaveable { mutableStateOf(true) }
+
+    // 공간 이동: 깨어난 카링은 출입구까지 걸어간 뒤 옮기고, 알은 바로 옮긴다
+    fun goTo(space: Space, via: Exit? = null) {
+        showSpaces = false
+        exitChoice = null
+        if (space == data.currentSpace) return
+        if (!space.isOpen(level)) {
+            doorHint = "${space.label}은(는) Lv.${space.unlockLevel}에 열려요"
+            return
+        }
+        val exit = via ?: exitsOf(data.currentSpace).let { exits -> exits.firstOrNull { space in it.targets } ?: exits.first() }
+        if (data.hatched) motion.walkToExit(exit) { travel = space } else travel = space
+    }
+    fun onExit(exit: Exit) {
+        when {
+            !data.spacesOpen -> doorHint = "Lv.${Space.MENU_LEVEL}이 되면 문 너머 공간이 열려요"
+            exit.targets.size == 1 -> goTo(exit.targets.first(), exit)
+            else -> exitChoice = exit
+        }
+    }
+    fun onTouch(interaction: Interaction) {
+        if (data.hatched) motion.interact(interaction) else doorHint = "알이 깨어나면 같이 놀 수 있어요"
+    }
+    val fade = remember { Animatable(0f) }
+    LaunchedEffect(travel) {
+        val target = travel ?: return@LaunchedEffect
+        val from = data.currentSpace
+        fade.animateTo(1f, tween(280))
+        store.moveTo(target)
+        motion.enter(data.hatched, arrivalExit(target, from))
+        fade.animateTo(0f, tween(360))
+        travel = null
+        if (data.hatched) motion.startLife()
+    }
+    LaunchedEffect(doorHint) {
+        if (doorHint != null) {
+            delay(2_600)
+            doorHint = null
+        }
+    }
+    val zoom by animateFloatAsState(if (zoomedOut) ZOOM_OUT else ZOOM_IN, tween(450), label = "zoom")
 
     Box(Modifier.fillMaxSize()) {
-        // 배경을 가리지 않도록 상태는 왼쪽 위, 기능은 아래 독에 둔다
-        Column(
-            Modifier.fillMaxSize().padding(top = if (compact) 150.dp else 120.dp, bottom = if (dockOpen) 118.dp else 64.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            playground(Modifier.fillMaxWidth().weight(1f))
-            caption()
-        }
-        StatusHud(store, data, Modifier.align(Alignment.TopStart).padding(16.dp))
-        CareChip(data.careQuests, onClick = { showCare = true }, modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp))
-        FunctionDock(
-            store = store,
-            data = data,
-            open = dockOpen,
-            onToggle = { dockOpen = !dockOpen },
-            onFeed = { store.feed(); justFed = true },
-            onPlay = { playHint = true },
-            onTripCards = { showTripCards = true },
-            onDex = { showDex = true },
-            onMap = { showMap = true },
-            onScenes = { showScenes = true },
-            onItems = { showItems = true },
-            onLocationToggle = { allowed ->
-                store.setLocationConsent(allowed)
-                if (allowed) onLocationAllowed()
+        RoomWorld(
+            space = data.currentSpace,
+            zoom = zoom,
+            onExit = ::onExit,
+            onItem = { onTouch(interactionFor(it)) },
+            onFixture = { onTouch(it.interaction) },
+            modifier = Modifier.pointerInput(Unit) {
+                // 두 손가락으로 벌리면 확대, 오므리면 축소
+                detectTransformGestures { _, _, scale, _ ->
+                    if (scale < 0.97f) zoomedOut = true else if (scale > 1.03f) zoomedOut = false
+                }
             },
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp, start = 16.dp, end = 16.dp),
+            // 새 아이템은 카드와 레벨을 본 뒤에 놓인다(데이터는 이미 저장돼 있다)
+            placed = if (reveal == Reveal.CARD || reveal == Reveal.LEVEL) data.placed - data.newItems.toSet() else data.placed,
+            newItems = if (reveal == Reveal.ITEM) data.newItems.toSet() else emptySet(),
+            motion = motion,
+        ) { roomW, roomH ->
+            val size = roomW * if (data.hatched) 0.165f else 0.115f
+            CarlingActor(
+                motion = motion,
+                size = size,
+                roomW = roomW,
+                roomH = roomH,
+                alive = data.hatched,
+                enabled = !overlayOpen,
+                placed = if (data.hatched) data.placed.toSet() else emptySet(),
+                space = data.currentSpace,
+                tapLines = personality.tapLines,
+                modifier = Modifier.fillMaxSize(),
+            ) { asleep ->
+                // 진화 연출 중에는 뒤에 새 모습이 미리 보이지 않게 가린다
+                if (evolution == null && !(data.hatched && data.name == null)) CarlingPicture(art, size, asleep = asleep, rockDegrees = if (data.hatched) 0f else if (eggCracking) 9f else 2f)
+            }
+        }
+
+        StatusHud(data, shownLevel, Modifier.align(Alignment.TopStart).padding(16.dp).zIndex(5f))
+
+        Row(Modifier.align(Alignment.TopEnd).padding(14.dp).zIndex(5f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SmallChip(if (data.voiceOn) "🔊 음성" else "🔇 음성", onClick = store::toggleVoice)
+            SmallChip("❓ 도움말", onClick = { showHelp = true })
+            if (BuildConfig.DEBUG) SmallChip("🛠", onClick = { showDev = !showDev })
+        }
+
+        when (reveal) {
+            Reveal.LEVEL -> Notice("Lv.$level 달성!", if (eggCracking) "알에 변화가 생겼어요" else "함께 달린 만큼 자랐어요", Modifier.align(Alignment.TopCenter).zIndex(6f))
+            Reveal.ITEM -> Notice("새 변화!", data.newItems.joinToString { if (it.space == data.currentSpace) it.label else "${it.space.label}에 ${it.label}" } + " 놓였어요 · 친밀도 +${data.newItems.size}", Modifier.align(Alignment.TopCenter).zIndex(6f))
+            else -> Unit
+        }
+
+        if (!data.hatched) {
+            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 104.dp).zIndex(5f)) {
+                Speech(eggHint(shownLevel))
+            }
+        }
+
+        Row(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 14.dp)
+                .zIndex(5f)
+                .background(Color.White.copy(alpha = 0.92f), RoundedCornerShape(30.dp))
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            DockButton("🃏", "트립카드", onClick = { showCards = true })
+            DockButton("📖", "도감", onClick = { showDex = true })
+            if (data.spacesOpen) DockButton("🚪", "공간", onClick = { showSpaces = true })
+            DockButton("🌱", "성장과 진화", dot = data.canEvolve, onClick = { showGrowth = true })
+            DockButton("🗺️", "카링월드", onClick = { showWorld = true })
+        }
+
+        // 확대·축소: 축소하면 왼쪽 벽의 문이 보인다
+        Column(Modifier.align(Alignment.CenterEnd).padding(end = 14.dp).zIndex(5f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SmallChip(if (zoomedOut) "🔍 확대" else "🔍 축소", onClick = { zoomedOut = !zoomedOut })
+        }
+        Text(
+            "🏠 카링의 집 · ${data.currentSpace.label} · ${data.currentSpace.floorLabel}",
+            fontSize = 20.sp,
+            color = Ink,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(start = 16.dp, top = if (data.canEvolve) 150.dp else 124.dp)
+                .zIndex(5f)
+                .background(Color.White.copy(alpha = 0.92f), RoundedCornerShape(50))
+                .padding(horizontal = 16.dp, vertical = 6.dp),
         )
+        doorHint?.let { Notice("🚪", it, Modifier.align(Alignment.TopCenter).zIndex(6f)) }
 
-        // 도움말(튜토리얼) — 언제든 열어 다시 볼 수 있다
-        Row(Modifier.align(Alignment.TopEnd).padding(12.dp)) {
-            TextButton(onClick = store::toggleVoice) {
-                Text(if (data.voiceOn) "🔊 음성 켜짐" else "🔇 음성 꺼짐", fontSize = 18.sp, color = Ink, modifier = Modifier.onScene())
-            }
-            TextButton(onClick = { showTutorial = true }) {
-                Text("❓ 도움말", fontSize = 18.sp, color = Ink, modifier = Modifier.onScene())
-            }
-        }
+        if (showDev && BuildConfig.DEBUG) DevPanel(store, Modifier.align(Alignment.TopEnd).padding(top = 76.dp, end = 14.dp).zIndex(7f))
 
-        if (BuildConfig.DEBUG) DevPanel(store, vehicle, Modifier.align(Alignment.TopEnd).padding(top = 60.dp, end = 12.dp))
-
-        if (showTripCards) {
-            TripCardsDialog(data.tripCards, onOpen = { openCard = it }, onClose = { showTripCards = false })
-        }
-        if (showCare) CareQuestDialog(data.careQuests, data.intimacy, data.heartPoints, onClose = { showCare = false })
-        store.careNotice?.let { n -> key(n) { CareDoneNotice(n, onDone = { store.careNotice = null }) } }
-        if (noDialog && !growing) data.pendingGift?.let { GiftDialog(it, onClaim = store::claimGift) }
-        if (showDex) DexDialog(data.tripCards, data.lineage, data.reachedStage, onOpen = { openCard = it }, onClose = { showDex = false })
-        data.pendingCard?.let { number ->
-            data.tripCards.firstOrNull { it.number == number }?.let { card ->
-                NewTripCardDialog(
-                    card = card,
-                    canSave = store.canSave(card),
-                    xpIfSaved = store.saveXpFor(card),
-                    onSave = { store.saveTripCard(number) },
-                    onClose = store::dismissTripCard,
-                )
+        // ---- 위에 뜨는 창 ----
+        Box(Modifier.fillMaxSize().zIndex(8f)) {
+            if (showCards) TripCardsScreen(data, store.clock.today(), onClose = { showCards = false })
+            if (showGrowth) {
+                GrowthScreen(data, onEvolve = {
+                    showGrowth = false
+                    if (data.form.next == Form.EVO1) pickLineage = true else startEvolution(null)
+                }, onClose = { showGrowth = false })
             }
-        }
-        openCard?.let { number ->
-            data.tripCards.firstOrNull { it.number == number }?.let { card ->
-                TripCardDetailDialog(
-                    card = card,
-                    canSave = store.canSave(card),
-                    xpIfSaved = store.saveXpFor(card),
-                    onSave = { store.saveTripCard(number) },
-                    onClose = { openCard = null },
-                )
+            if (pickLineage) {
+                LineagePicker(onPick = {
+                    pickLineage = false
+                    startEvolution(it)
+                }, onCancel = { pickLineage = false })
             }
-        }
-        if (showMap) CarlingMapScreen(data.mapRoutes, store.routeTracks, onClose = { showMap = false })
-        if (showItems) {
-            ItemsDialog(
-                data, personality,
-                onSelect = store::equipItem,
-                onRide = store::ride,
-                onPickVehicle = store::pickVehicle,
-                onUse = { if (store.useItem(it)) justFed = true },
-                onClose = { showItems = false },
-            )
-        }
-        if (!growing && GrowthRules.itemsUnlocked(data.reachedStage) && !data.itemIntroSeen && data.pendingCard == null && openCard == null) {
-            ItemUnlockDialog(
-                data,
-                personality,
-                onOpenItems = { store.markItemIntroSeen(); showItems = true },
-                onLater = store::markItemIntroSeen,
-            )
-        }
-        if (showScenes) ScenePickerDialog(data.scene, data.ownedScenes(), onSelect = store::setScene, onClose = { showScenes = false })
-        if (showTutorial) TutorialDialog(onClose = { showTutorial = false })
-        if (data.pendingMapNotice && noDialog && !growing) {
-            MapNotice(
-                onOpen = { store.dismissMapNotice(); showMap = true },
-                onDone = store::dismissMapNotice,
-            )
-        }
-        if (evolving && noDialog) {
-            // 한 번에 여러 단계를 넘었으면 한 단계씩 보여준다
-            val to = (celebrated ?: data.reachedStage) + 1
-            key(celebrated, to) {
-                EvolutionOverlay(
-                    from = celebrated ?: 0,
-                    to = to,
-                    lineage = data.lineage,
-                    newScenes = Scene.unlockedAt(to).map { it.label },
-                    gift = when (to) {
-                        VEHICLE_GIFT_STAGE -> data.lineage?.let { "${Vehicle.of(it).label}를 선물로 받았어요! 아이템 › 타기에서 타 보세요." }
-                        VEHICLE_PICK_STAGE -> "이동수단 하나를 골라 받을 수 있어요! 아이템 › 타기"
-                        else -> null
-                    },
-                    onDone = {
-                        GrowthRules.learnedMove(to, data.lineage)?.let { cue = WanderCue(++cueId, it) }
-                        store.markStageCelebrated(to)
-                    },
-                )
+            if (showHelp) HelpDialog(onClose = { showHelp = false })
+            if (showSpaces) SpacePicker(data, onPick = ::goTo, onClose = { showSpaces = false })
+            if (showDex) ItemDex(data, onClose = { showDex = false })
+            exitChoice?.let { exit -> ExitChooser(exit, level, onPick = { goTo(it, exit) }, onClose = { exitChoice = null }) }
+            if (showWorld) WorldMap(data, onClose = { showWorld = false })
+            evolution?.let { e ->
+                EvolutionOverlay(e.from, e.to, e.title, e.line, onDone = { evolution = null })
             }
+            if (evolution == null && data.hatched && data.name == null) NameScreen(art, onName = store::giveName)
+            if (evolution == null && reveal == Reveal.CARD) {
+                TripRewardDialog(data.unseenCards.mapNotNull { n -> data.tripCards.firstOrNull { it.number == n } }, onClose = store::ackCards)
+            }
+            if (!data.introSeen) IntroDialog(onStart = store::finishIntro)
         }
+        if (fade.value > 0f) Box(Modifier.fillMaxSize().zIndex(9f).background(Color.Black.copy(alpha = fade.value)))
     }
 }
 
-/** 왼쪽 위의 작은 상태 표시. 단계·계열, 다음 모습까지의 운전일·XP, 친밀도·포만감을 한눈에 보여준다. */
+private fun eggHint(level: Int): String = when {
+    level >= 9 -> "안에서 누군가 웃고 있는 것 같아요."
+    level >= 5 -> "금 사이로 빛이 새어 나와요."
+    level >= 2 -> "알에 작은 금이 갔어요. 두근, 두근."
+    else -> "함께 달리면 알이 조금씩 깨어나요."
+}
+
 @Composable
-private fun StatusHud(store: CarlingStore, data: CarlingData, modifier: Modifier = Modifier) {
-    val cur = data.reachedStage
-    val next = if (cur < GrowthRules.MAX_STAGE) GrowthRules.STAGES[cur + 1] else null
-    val days = data.drivingDayCount
+private fun StatusHud(data: CarlingData, level: Int, modifier: Modifier) {
     Column(
         modifier
-            .widthIn(max = 460.dp)
-            .background(Color(0xB3060A24), RoundedCornerShape(22.dp))
-            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(22.dp))
+            .width(330.dp)
+            .background(Color.White.copy(alpha = 0.92f), RoundedCornerShape(24.dp))
             .padding(horizontal = 18.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(GrowthRules.stageName(cur, data.lineage), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink)
-            Spacer(Modifier.width(10.dp))
-            data.lineage?.let { Text("${it.label} 계열", fontSize = 17.sp, color = Color(it.color), fontWeight = FontWeight.Medium) }
-                ?: Text("계열 미정", fontSize = 16.sp, color = Muted)
+            Text(data.name ?: formLabel(data.form, data.lineage), fontSize = 24.sp, color = Ink, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
-            next?.let { Text("다음: ${GrowthRules.stageName(it.index, data.lineage)}", fontSize = 15.sp, color = Muted) }
+            Text("Lv.$level", fontSize = 24.sp, color = RoseDeep, fontWeight = FontWeight.Bold)
         }
-        HudBar("🚗 운전일", if (next != null) "$days / ${next.drivingDays}" else "$days",
-            if (next != null) GrowthRules.stageProgress(days, data.stageSpec.drivingDays, next.drivingDays) else 1f, Color(0xFF6FB4FF))
-        HudBar("⚡ XP", if (next != null) "${data.totalXp} / ${next.cumXp}" else "${data.totalXp}",
-            if (next != null) GrowthRules.stageProgress(data.totalXp, data.stageSpec.cumXp, next.cumXp) else 1f, Color(0xFF7BDB6A))
-        HudBar("💗 친밀도", "${data.intimacy}", data.intimacy / 100f, Color(0xFFFF7FA8))
-        HudBar("🍙 포만감", "${data.fullness}", data.fullness / 100f, Color(0xFFFFC04D))
-        next?.let { n ->
-            val daysLeft = n.drivingDays - days
-            if (data.totalXp >= n.cumXp && daysLeft > 0) {
-                Text("경험치는 충분해! ${daysLeft}번만 더 같이 달리면 자랄 수 있어.", fontSize = 15.sp, color = Gold)
+        Spacer(Modifier.height(6.dp))
+        SoftBar(GrowthRules.levelProgress(data.totalXp), Honey, Modifier.fillMaxWidth())
+        Spacer(Modifier.height(6.dp))
+        Text("함께 달린 날 ${data.drivingDayCount}일", fontSize = 19.sp, color = Muted)
+        if (data.canEvolve) Text("✨ 진화할 수 있어요!", fontSize = 19.sp, color = RoseDeep, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun Notice(title: String, body: String, modifier: Modifier) {
+    Column(
+        modifier
+            .padding(top = 18.dp)
+            .background(Color.White.copy(alpha = 0.96f), RoundedCornerShape(26.dp))
+            .padding(horizontal = 30.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(title, fontSize = 28.sp, color = RoseDeep, fontWeight = FontWeight.Bold)
+        Text(body, fontSize = 22.sp, color = Ink, textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
+private fun SmallChip(label: String, onClick: () -> Unit) {
+    Text(
+        label,
+        fontSize = 20.sp,
+        color = Ink,
+        modifier = Modifier
+            .background(Color.White.copy(alpha = 0.92f), RoundedCornerShape(50))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 10.dp),
+    )
+}
+
+@Composable
+private fun DockButton(icon: String, label: String, dot: Boolean = false, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 4.dp),
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(icon, fontSize = 34.sp)
+            Text(label, fontSize = 18.sp, color = Ink)
+        }
+        if (dot) Box(Modifier.align(Alignment.TopEnd).offset(x = 8.dp).size(16.dp).background(RoseDeep, CircleShape))
+    }
+}
+
+@Composable
+private fun IntroDialog(onStart: () -> Unit) {
+    FullScrim {
+        PanelBox(Modifier.widthIn(max = 720.dp)) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CarlingPicture(carlingArt(Form.EGG, null, 1), 240.dp)
+                Text("작은 빛이 당신의 차에 도착했어요", fontSize = 30.sp, color = Ink, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "운전하면 젤리 알이 자라고, 이 방이 조금씩 채워져요.\n따로 저장하거나 꾸밀 필요 없이, 평소처럼 달리기만 하면 돼요.",
+                    fontSize = 22.sp,
+                    color = Ink,
+                    lineHeight = 32.sp,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(18.dp))
+                Button(onClick = onStart, modifier = Modifier.height(72.dp)) { Text("함께 시작해요", fontSize = 26.sp) }
             }
         }
     }
 }
 
-@Composable
-private fun HudBar(label: String, value: String, progress: Float, color: Color) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = 16.sp, color = Ink, modifier = Modifier.width(96.dp))
-        Box(Modifier.weight(1f).height(12.dp).background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(6.dp))) {
-            Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(12.dp).background(color, RoundedCornerShape(6.dp)))
-        }
-        Text(value, fontSize = 16.sp, color = Ink, textAlign = TextAlign.End, modifier = Modifier.width(110.dp))
-    }
-}
-
-/** 화면 아래의 기능 독. ▼로 접으면 작은 '메뉴' 단추만 남아 배경을 거의 가리지 않는다. */
-@Composable
-private fun FunctionDock(
-    store: CarlingStore,
-    data: CarlingData,
-    open: Boolean,
-    onToggle: () -> Unit,
-    onFeed: () -> Unit,
-    onPlay: () -> Unit,
-    onTripCards: () -> Unit,
-    onDex: () -> Unit,
-    onMap: () -> Unit,
-    onScenes: () -> Unit,
-    onItems: () -> Unit,
-    onLocationToggle: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val shape = RoundedCornerShape(26.dp)
-    if (!open) {
-        Box(
-            modifier
-                .background(Color(0xB3060A24), shape)
-                .border(1.dp, Color.White.copy(alpha = 0.15f), shape)
-                .clickable(onClick = onToggle)
-                .padding(horizontal = 28.dp, vertical = 12.dp),
-        ) { Text("▲ 메뉴", fontSize = 19.sp, color = Ink, fontWeight = FontWeight.Medium) }
-        return
-    }
-    val canFeed = store.canFeedToday()
-    val itemsOpen = GrowthRules.itemsUnlocked(data.reachedStage)
-    val location = data.locationConsent == true
-    Row(
-        modifier
-            .background(Color(0xB3060A24), shape)
-            .border(1.dp, Color.White.copy(alpha = 0.15f), shape)
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        DockButton("🍙", if (canFeed) "밥 주기" else "배불러요", enabled = canFeed, onClick = onFeed)
-        DockButton("🎈", "놀아주기", onClick = onPlay)
-        DockButton("🃏", "트립카드", badge = data.tripCards.count { !it.saved && store.canSave(it) }.takeIf { it > 0 }, onClick = onTripCards)
-        DockButton("📖", "도감", onClick = onDex)
-        DockButton("🗺", "지도", onClick = onMap)
-        DockButton("🎁", "아이템", badge = if (data.canPickVehicle) 1 else data.usables.values.sum().takeIf { it > 0 }, selected = data.equippedItem != null || data.ridingVehicle != null, onClick = onItems)
-        DockButton("🖼", "배경", badge = data.ownedScenes().size, onClick = onScenes)
-        DockButton(if (location) "📍" else "📍", if (location) "위치 켜짐" else "위치 꺼짐", selected = location) { onLocationToggle(!location) }
-        Spacer(Modifier.width(6.dp))
-        DockButton("▼", "접기", onClick = onToggle)
-    }
-}
-
-@Composable
-private fun DockButton(
-    icon: String,
-    label: String,
-    enabled: Boolean = true,
-    badge: Int? = null,
-    selected: Boolean = false,
-    onClick: () -> Unit,
-) {
-    Box(
-        Modifier
-            .padding(horizontal = 3.dp)
-            .width(92.dp)
-            .background(if (selected) Gold.copy(alpha = 0.22f) else Color.Transparent, RoundedCornerShape(18.dp))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 6.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.alpha(if (enabled) 1f else 0.45f)) {
-            Text(icon, fontSize = 32.sp)
-            Text(label, fontSize = 15.sp, color = Ink, maxLines = 1)
-        }
-        if (badge != null && badge > 0) {
-            Text(
-                "$badge",
-                fontSize = 13.sp,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.TopEnd).padding(end = 10.dp).background(Color(0xFFE5507E), RoundedCornerShape(50)).padding(horizontal = 7.dp, vertical = 1.dp),
-            )
-        }
-    }
-}
-
-/**
- * 튜토리얼(도움말) 내용 — 한곳에서 관리한다.
- * ⚠ 기능을 추가·변경하면 여기 항목도 함께 업데이트할 것.
- */
-private val tutorialSections: List<Triple<String, String, String>> = listOf(
-    Triple("🥚", "첫 만남", "알은 모두에게 하나, 고르지 않아요. 첫 운전을 마치고 트립카드를 저장한 뒤 알을 네 번 두드려 깨우고, 이름을 지어주면 나만의 카링이 돼요."),
-    Triple("🚗", "함께 달리기", "3분 이상 달릴 때마다 트립카드 한 장이 생겨요. 달리는 동안 카링은 화면 구석에서 은은하게 빛날 뿐이에요."),
-    Triple("🃏", "트립카드 저장", "운전을 마치면 도착지·날짜·달린 길이 별자리로 그려진 트립카드가 나와요. 저장하지 않은 카드는 24시간 뒤 사라져요. 도착 후 24시간 안에 저장하면 아래 보상 칸이 뒤집혀 자동차와 아이템이 나오고 '저장 완료' 도장이 찍혀요. 저장한 카드 1장에 +10 XP, 안전 점수 95점 이상이면 +3 XP (하루 5장까지). 저장한 카드가 있는 날이 '운전일'이 돼요."),
-    Triple("📖", "도감", "트립카드를 저장하면 앞면의 자동차가 도감에 모여요. 1975년 포니부터 지금의 현대·기아·제네시스, 미래 콘셉트카까지 100대이고, 일반·레어·에픽·전설 희귀도가 있어요. 카링 탭에는 만난 카링이 모이고, 아직 못 만난 카링은 실루엣으로 보여요."),
-    Triple("⚡", "성장 에너지 (XP)", "트립카드 저장과 교감(쓰다듬기·밥 주기·놀아주기 각 하루 1회 +2)으로 하루 최대 71. XP는 자라도 줄지 않아요."),
-    Triple("🌱", "자라는 방법", "최소 운전일과 누적 XP를 둘 다 채우면 다음 모습이 열려요. 7운전일 175 XP · 15운전일 375 XP · 30운전일 750 XP · 60운전일 1,500 XP · 90운전일 2,250 XP. 많이 달려도 운전일보다 빨리 자라지는 않고, 쉬어도 퇴화하지 않아요."),
-    Triple("🎨", "계열", "처음엔 진주색 아기 카링이에요. 15운전일에 저장한 트립의 운전 습관으로 계열(바람·빛·나무·물·흙)이 정해져 색이 입혀지고, 한 번 정해지면 바뀌지 않아요."),
-    Triple("✨", "진화", "30·60·90운전일에 세 번 진화해요. 바람은 산들링→날개링→하늘링, 빛은 반짝링→햇살링→태양링, 나무는 새싹링→잎새링→숲결링, 물은 물결링→파도링→바다링, 흙은 모래링→소호링→구미링이 돼요. 자랄 때마다 변화 장면과 축하 카드가 나와요."),
-    Triple("🖼", "배경", "Dr.Pab의 심장 연구소에서 시작해요. 알이 깨어날 때와 자랄 때마다 새 배경을 하나씩 얻어 모두 8곳을 모을 수 있어요. 아침·낮·노을·밤은 차량 시계에 맞춰 저절로 바뀌어요."),
-    Triple("🗺", "지도", "대한민국 지도가 안개로 덮여 있고, 함께 달린 길 주변 1km씩 밝혀져요. 처음엔 전국만 보이지만 다닌 시·도, 시군구, 동마다 필터가 생겨 눌러서 들어가 볼 수 있어요. 지역마다 밝혀진 땅이 몇 %인지 알려줘요. 위치 사용이 켜져 있어야 해요."),
-    Triple("🌤", "날씨 인사", "날짜가 바뀐 뒤 첫 운전 때 말을 걸어요. 오전에는 오늘 예보를, 오후에는 지금 날씨를 알려줘요. 위치 사용이 켜져 있어야 해요."),
-    Triple("🔊", "음성", "카링이 말할 때 \"뾰로롱\" 옹알이 목소리가 나요. 어릴수록 높고, 계열마다 음색이 달라요. 주행을 시작하거나 마칠 때는 \"뿅\" 하고 또렷하게 말을 걸어요. 화면 오른쪽 위에서 언제든 끌 수 있어요."),
-    Triple("🎁", "아이템 · 꾸미기", "7운전일에 자라면 열려요. 리본·왕관·꽃 화관·하트 선글라스 등 10가지 젤리 아이템 중 하나로 카링을 꾸며 보세요. 진화한 모습에도 머리에 맞춰 보여요."),
-    Triple("🚗", "아이템 · 타기", "이동수단을 모아 탈 수 있어요. 진화 2에 내 계열의 이동수단을 선물로 받고, 진화 3에 하나를 더 골라 받아요. 다시 누르면 내려요."),
-    Triple("🍙", "아이템 · 사용하기", "트립카드를 저장할 때마다 간식(주먹밥·쿠키·딸기우유·푸딩·무지개 젤리)을 하나씩 받아 사용하기에 모여요. 먹이면 배가 부르고, 그날 첫 밥이면 +2 XP예요."),
-    Triple("💗", "돌보기", "주차 중에만 교감할 수 있어요. 쓰다듬기(톡 터치)·밥 주기·놀아주기(카링을 누른 채 끌기)를 각각 하루 한 번 하면 +2 XP씩 받아요. 끌어서 옮기는 건 언제든 할 수 있어요. 카링은 진짜 젤리처럼 말랑해서, 누르면 콕 들어갔다 튕기고 끌거나 뛰면 몸이 출렁여요."),
-    Triple("🛠", "차량 돌봄", "차가 아프면 카링도 아파요. 타이어 공기압이 빠지면 절뚝거리고, 연료가 부족하면 배고파하고, 엔진오일에 문제가 생기면 아파해요. 화면 위 경고를 누르면 돌봄 퀘스트가 보이고, 차를 고치면 차량 신호로 자동 완료돼 친밀도가 올라요. 친밀도가 가득 찬 뒤 쌓인 마음 포인트로 카링이 정비 쿠폰을 선물해요(시연용 · 블루핸즈 제휴 예정)."),
-    Triple("↩", "되돌아가기", "첫 만남 중에는 화면 왼쪽 위 '뒤로'로 이전 단계를 다시 볼 수 있어요."),
+private val HelpSections = listOf(
+    Triple("🚗", "운전하면 끝", "거리 2km 이상, 실제로 달린 시간 5분 이상이면 트립카드 한 장이 자동으로 저장돼요. 저장 버튼은 없어요."),
+    Triple("⚡", "XP와 레벨", "하루 첫 5번의 유효 운행마다 20 XP를 받아요. 안전 점수 90점 이상이면 5 XP를 더 받아요. 6번째부터는 카드와 아이템만 받아요."),
+    Triple("🛋️", "자동으로 꾸며지는 방", "운행할 때마다 새 아이템이 정해진 자리에 놓여요. 방은 24종, 집의 공간은 12종씩이에요. 새 아이템이 처음 놓일 때 친밀도가 올라요."),
+    Triple("🎯", "퀘스트", "레벨이 오를 때마다 운행 퀘스트가 생기고, 달리다 보면 자동으로 완료돼요."),
+    Triple("🌱", "진화", "최소 레벨, 친밀도, 퀘스트를 모두 채우면 '성장과 진화'에서 진화할 수 있어요. Lv.10 이상이면 아기 카링이 깨어나고, Lv.20 이상이면 계열을 골라 진화해요."),
+    Triple("🚪", "공간", "Lv.10이 되면 '공간' 메뉴가 생기고 거실이 열려요. 주방(Lv.13)·화장실(Lv.16)·작업실(Lv.18)은 잠겨 있다가 레벨이 오르면 열려요. 계열 진화 1부터는 정원 같은 더 넓은 공간이 이어질 예정이에요."),
+    Triple("🏠", "2층 집", "거실이 집의 중심이에요. 거실의 계단으로 2층(방·작업실), 아치로 주방, 문으로 화장실에 가요. 다른 공간에서는 왼쪽 문으로 나가요."),
+    Triple("🔍", "확대·축소와 문", "오른쪽의 축소 버튼(또는 두 손가락 오므리기)을 누르면 방 전체와 문·계단이 보여요. 문을 누르면 카링이 그쪽으로 걸어가요."),
+    Triple("👆", "가구 누르기", "가구를 누르면 카링이 다가가요. 소파에 앉고, 침대에서 자고, TV를 보며 즐거워하고, 커피를 마시면 맛있다고 해요. 보상은 없는 놀이예요."),
+    Triple("🗺️", "카링월드", "아래 '카링월드'에서 지도를 볼 수 있어요. 지금 있는 집은 밝게 빛나고, 정원·해변·숲·하늘 전망대·하늘 섬은 진화할 때마다 안개가 걷혀요."),
+    Triple("📖", "아이템 도감", "공간마다 얻을 수 있는 아이템이 몇 개이고 몇 개를 모았는지 보여줘요. 새 아이템은 카링이 있는 공간부터 채워져요."),
+    Triple("🃏", "트립카드", "지난 카드는 모두 남아요. 오늘, 지난 7일·14일·30일, 전체로 골라 볼 수 있어요."),
+    Triple("🛏️", "카링의 생활", "깨어난 카링은 혼자서도 가끔 침대에서 자고, 소파에 앉고, 음악에 맞춰 춤춰요. 카링을 누르면 몸이 말랑하게 출렁이고 옹알이로 대답해요."),
+    Triple("🔊", "음성", "카링이 말할 때 옹알이 목소리가 나요. 운행을 시작하거나 마칠 때는 \"뿅\" 하고 또렷하게 말을 걸어요. 화면 오른쪽 위에서 언제든 끌 수 있어요."),
+    Triple("🛡️", "안전과 정보", "운행 중에는 게임 화면을 보여주지 않아요. 달린 경로와 위치는 저장하지 않아요."),
 )
 
 @Composable
-private fun TutorialDialog(onClose: () -> Unit) {
-    Scrim {
-        Text("카링 도움말", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Ink)
-        Text("카링과 함께 자라는 방법", fontSize = 18.sp, color = Muted)
-        Spacer(Modifier.height(16.dp))
-        tutorialSections.forEach { (icon, title, body) ->
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                Text(icon, fontSize = 30.sp, modifier = Modifier.width(52.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Gold)
-                    Text(body, fontSize = 19.sp, lineHeight = 28.sp, color = Ink)
+private fun HelpDialog(onClose: () -> Unit) {
+    FullScrim {
+        PanelBox(Modifier.widthIn(max = 900.dp)) {
+            Column {
+                Text("카링월드 도움말", fontSize = 30.sp, color = Ink, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(10.dp))
+                Column(Modifier.height(520.dp).verticalScroll(rememberScrollState())) {
+                    HelpSections.forEach { (icon, title, body) ->
+                        Row(Modifier.padding(vertical = 8.dp)) {
+                            Text(icon, fontSize = 30.sp)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(title, fontSize = 24.sp, color = Ink, fontWeight = FontWeight.Bold)
+                                Text(body, fontSize = 21.sp, color = Muted, lineHeight = 30.sp)
+                            }
+                        }
+                    }
                 }
+                Spacer(Modifier.height(10.dp))
+                Button(onClick = onClose, modifier = Modifier.align(Alignment.End).height(64.dp)) { Text("닫기", fontSize = 24.sp) }
             }
         }
-        Spacer(Modifier.height(16.dp))
-        Button(onClick = onClose, modifier = Modifier.height(60.dp).width(200.dp)) { Text("닫기", fontSize = 24.sp) }
     }
 }
 
 @Composable
-internal fun Scrim(content: @Composable () -> Unit) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color(0xB3000000))
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
-        contentAlignment = Alignment.Center,
+private fun DevPanel(store: CarlingStore, modifier: Modifier) {
+    Column(
+        modifier
+            .width(300.dp)
+            .background(Color.White, RoundedCornerShape(20.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Column(
-            Modifier
-                .padding(24.dp)
-                .widthIn(max = 760.dp)
-                .background(Night, RoundedCornerShape(36.dp))
-                .verticalScroll(rememberScrollState())
-                .padding(36.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) { content() }
-    }
-}
-
-// ---------------- 개발용 ----------------
-
-@Composable
-private fun DevPanel(store: CarlingStore, vehicle: VehicleState, modifier: Modifier) {
-    var open by remember { mutableStateOf(false) }
-    var lineage by remember { mutableStateOf(Lineage.WIND) }
-    val simulator = remember(store) { DevSimulator(store) }
-
-    Column(modifier) {
-        TextButton(onClick = { open = !open }) { Text(if (open) "개발자 도구 ▲" else "🛠", fontSize = 18.sp, color = Ink, modifier = Modifier.onScene()) }
-        if (!open) return@Column
-        Column(
-            Modifier.background(Panel, RoundedCornerShape(16.dp)).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            val d = store.data
-            DebugLine("단계", "${GrowthRules.stageName(d.reachedStage, d.lineage)} · ${d.stageSpec.label} (idx ${d.reachedStage})")
-            DebugLine("누적", "운전일 ${d.drivingDayCount} · XP ${d.totalXp}")
-            DebugLine("계열", d.lineage?.label ?: "미정")
-            DebugLine("게임 날짜", "${store.clock.today()} (D${d.dayNumber(store.clock.today())})")
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Lineage.entries.forEach { l ->
-                    FilterChip(selected = lineage == l, onClick = { lineage = l }, label = { Text(l.label) })
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(onClick = { simulator.simulateDays(1, lineage) }) { Text("+1일") }
-                OutlinedButton(onClick = { simulator.simulateDays(7, lineage) }) { Text("+7일") }
-                OutlinedButton(onClick = { simulator.advanceToStage(1, lineage) }) { Text("성장까지") }
-                OutlinedButton(onClick = { simulator.advanceToStage(2, lineage) }) { Text("2단계까지") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(onClick = { simulator.advanceToStage(3, lineage) }) { Text("진화1까지") }
-                OutlinedButton(onClick = { simulator.advanceToStage(4, lineage) }) { Text("진화2까지") }
-                OutlinedButton(onClick = { simulator.advanceToStage(5, lineage) }) { Text("완성형까지") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(selected = store.devDayPart == null, onClick = { store.devDayPart = null }, label = { Text("실제 시각") })
-                DayPart.entries.forEach { part ->
-                    FilterChip(selected = store.devDayPart == part, onClick = { store.devDayPart = part }, label = { Text(part.label) })
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                val look = store.devLook
-                OutlinedButton(onClick = {
-                    val from = look?.first ?: (GrowthRules.MAX_STAGE + 1)
-                    store.devLook = (from - 1).coerceAtLeast(0) to lineage
-                }) { Text("◀ 외형") }
-                OutlinedButton(onClick = { store.devLook = null }) { Text(look?.let { "${it.first}단계 · 실제로" } ?: "실제 외형") }
-                OutlinedButton(onClick = {
-                    val from = look?.first ?: -1
-                    store.devLook = (from + 1).coerceAtMost(GrowthRules.MAX_STAGE) to lineage
-                }) { Text("외형 ▶") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(onClick = { store.clock.skipDays(1) }) { Text("다음 날로") }
-                OutlinedButton(onClick = store::devRestartFromD1) { Text("D1부터") }
-                OutlinedButton(onClick = store::reset) { Text("알부터") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(onClick = store::devReplayStageChange) { Text("변화 장면 다시 보기") }
-                OutlinedButton(onClick = store::devGrantVehicles) { Text("이동수단 모두") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                CareIssue.entries.forEach { c ->
-                    FilterChip(selected = c in store.devCare, onClick = { store.devToggleCare(c) }, label = { Text("${c.icon} ${c.chip}") })
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                OutlinedButton(onClick = store::devGiveItems) { Text("간식 받기") }
-                OutlinedButton(onClick = store::devMakeHungry) { Text("배고픔") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(onClick = { store.devResetGreeting(9) }) { Text("오전 인사 준비") }
-                OutlinedButton(onClick = { store.devResetGreeting(15) }) { Text("오후 인사 준비") }
-                OutlinedButton(onClick = simulator::driveToNextSample) { Text("새 길 주행") }
-            }
-        }
+        Text("시뮬레이션 데이터", fontSize = 18.sp, color = RoseDeep, fontWeight = FontWeight.Bold)
+        DevButton("유효 운행 1회 (95점)") { DevSimulator.validTrip(store) }
+        DevButton("유효 운행 1회 (84점)") { DevSimulator.validTrip(store, harshEvents = 2) }
+        DevButton("조건 미달 운행") { DevSimulator.shortTrip(store) }
+        DevButton("하루 넘기고 2회 운행") { DevSimulator.nextDay(store) }
+        DevButton("다음 진화 조건 채우기") { DevSimulator.fillNextEvolution(store) }
+        DevButton("처음부터 다시") { store.devReset() }
     }
 }
 
 @Composable
-private fun DebugLine(label: String, value: String) {
-    Row {
-        Text(label, fontSize = 18.sp, color = Muted, modifier = Modifier.width(120.dp))
-        Text(value, fontSize = 18.sp, color = Ink)
-    }
+private fun DevButton(label: String, onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text(label, fontSize = 18.sp) }
 }

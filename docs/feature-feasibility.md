@@ -5,6 +5,8 @@
 - 검증 환경: Pleos Connect Emulator v2.1.0 (Android 14), Vehicle SDK 2.3.2, NaviHelper SDK 3.0.5
 - 검증 방법: Pleos Playground 공식 문서 확인, SDK 바이너리(AAR) API 시그니처 직접 확인, 에뮬레이터에 앱을 설치해 동작 확인
 
+> **2026-11-10 추가:** 앱은 카링월드 기획안 v2.2로 리뉴얼되었다. 현재 범위와 구현 상태는 [carling-world-spec.md](carling-world-spec.md)를 따른다. 이 문서는 SDK 조사 기록으로만 남긴다.
+>
 > **읽을 때 주의:** 요약과 1~6장은 2026-10-31 기획안 v0.2를 기준으로 조사한 기록이다. SDK 제공 상태도 그때 기록이라 지금과 다르다(FusedLocation·TextToSpeech·SpeechToText는 현재 제공 중, [mvp-feature-spec.md](mvp-feature-spec.md) 참고). 성격 선택·질문 2개·8갈래 진화·도착 리포트·추억 카드는 이후 현재 설계로 바뀌었다. 지금 구현은 아래 "구현 현황"을 본다.
 
 ## 요약
@@ -117,7 +119,7 @@
 
 ## 구현 현황 (2026-11-04, v0.3.0 · 코드 기준)
 
-자세한 수치는 [growth-balance.md](growth-balance.md)와 `game/Growth.kt`를 따른다.
+자세한 수치는 `game/Growth.kt`를 따른다.
 
 ### 첫 만남
 | 기능 | 상태 | 비고 |

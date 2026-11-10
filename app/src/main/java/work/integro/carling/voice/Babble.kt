@@ -4,6 +4,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.util.Log
+import work.integro.carling.game.Form
 import work.integro.carling.game.Lineage
 import java.util.concurrent.Executors
 import kotlin.math.PI
@@ -28,12 +29,19 @@ object Babble {
 
     /** 꺼져 있으면 아무 소리도 내지 않는다 (홈 화면의 음성 켜짐/꺼짐과 같이 움직인다). */
     @Volatile var enabled = true
-    /** 성장 단계 (-1 = 알, 소리 없음). */
+    /** 목소리 단계 (-1 = 알, 소리 없음). */
     @Volatile var stage = 0
     @Volatile var lineage: Lineage? = null
 
     private val worker = Executors.newSingleThreadExecutor()
     @Volatile private var current: AudioTrack? = null
+
+    /** 진화 단계를 목소리 단계로 바꾼다. 알은 말하지 않는다. */
+    fun stageOf(form: Form): Int = when (form) {
+        Form.EGG -> -1
+        Form.BABY -> 0
+        Form.EVO1 -> 3
+    }
 
     /** 단계별 기본 음높이(Hz). 사람 말소리(200Hz 안팎)보다 훨씬 높게 해서 작은 생물처럼 들리게 한다. */
     internal fun basePitch(stage: Int, lineage: Lineage?): Double {

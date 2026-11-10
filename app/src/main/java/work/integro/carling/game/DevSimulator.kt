@@ -1,125 +1,35 @@
 package work.integro.carling.game
 
 import work.integro.carling.data.CarlingStore
-import work.integro.carling.data.MapRoute
 import work.integro.carling.data.TripResult
-import work.integro.carling.data.roadShape
-import work.integro.carling.navi.NaviPlaces
-import java.time.ZoneId
-import kotlin.random.Random
 
-/**
- * 개발·데모용: 하루를 건너뛰며 '계열에 맞는 하루'(트립 3회 저장 + 교감 3종 = 36 XP)를
- * 기록해 운전일·XP·단계를 빠르게 쌓는다. 출시 빌드에서는 숨긴다.
- */
-private val SAMPLE_PLACES = listOf(
-    Triple("서울숲", 37.544, 127.037),
-    Triple("코엑스", 37.512, 127.059),
-    Triple("두물머리", 37.532, 127.319),
-    Triple("강릉 경포대", 37.795, 128.897),
-    Triple("대구 수성못", 35.828, 128.617),
-    Triple("해운대", 35.158, 129.160),
-)
+/** 개발자 도구. 여기서 만든 카드는 '시뮬레이션 데이터'로 표시되고 실차 기록과 구분된다. */
+object DevSimulator {
+    private var sequence = 0L
 
-private const val HOME_LAT = 37.50
-private const val HOME_LNG = 127.03
-private const val WORK_LAT = 37.57
-private const val WORK_LNG = 126.98
+    /** 유효 운행 1회. [harshEvents]가 0이면 점수 95(보너스 대상). */
+    fun validTrip(store: CarlingStore, harshEvents: Int = 0) = trip(store, 8.4f, 22L * 60, harshEvents)
 
-class DevSimulator(private val store: CarlingStore) {
-
-    private val clock get() = store.clock
-    private var seq = 0
-
-    /** [count]일을 건너뛰며 [lineage] 습관의 하루를 반복 기록한다. */
-    fun simulateDays(count: Int, lineage: Lineage) {
-        repeat(count) { simulateOneDay(lineage) }
+    /** 조건 미달 운행(거리 1.99km). 개발 빌드는 기준이 낮아 실제로는 카드가 생기므로 시뮬레이션에서는 이동시간을 0으로 둔다. */
+    fun shortTrip(store: CarlingStore) {
+        val end = store.clock.now()
+        store.recordTrip(TripResult(end - 60_000L - sequence++, end, 0f, 0L, 0, simulated = true))
     }
 
-    /** 목표 단계 인덱스에 도달할 때까지(최대 130운전일) 시뮬레이트. */
-    fun advanceToStage(targetIndex: Int, lineage: Lineage) {
+    /** 다음 날로 넘겨 그날 [trips]번 달린다. */
+    fun nextDay(store: CarlingStore, trips: Int = 2) {
+        store.clock.skipDays(1)
+        repeat(trips) { validTrip(store) }
+    }
+
+    /** 다음 진화 조건이 다 찰 때까지 날을 넘겨 달린다. 진화 자체는 화면에서 누른다. */
+    fun fillNextEvolution(store: CarlingStore) {
         var guard = 0
-        while (store.data.reachedStage < targetIndex && guard++ < 130) simulateOneDay(lineage)
+        while (!store.data.canEvolve && store.data.form.next != null && guard++ < 200) nextDay(store)
     }
 
-    /** 시연용: 다음 지역으로 실제처럼 한 번 달린다. 새 길 알림과 지도 표시를 볼 수 있다. */
-    fun driveToNextSample() {
-        val (name, lat, lng) = SAMPLE_PLACES[store.data.mapRoutes.size % SAMPLE_PLACES.size]
-        val (startLat, startLng) = lastStop()
-        val end = clock.now()
-        store.recordTrip(
-            TripResult(
-                startMillis = end - 25 * 60 * 1000,
-                endMillis = end,
-                distanceKm = 18f,
-                harshEvents = 0,
-                placeCell = NaviPlaces.cellOf(lat, lng),
-                placeName = name,
-                region = Region.of(lat, lng),
-                lat = lat,
-                lng = lng,
-                startLat = startLat,
-                startLng = startLng,
-                // 실제 주행 기록처럼 일정 간격의 경로를 넣어 상세 지도를 시험한다
-                track = roadShape(MapRoute(lat, lng, startLat, startLng)),
-            ),
-        )
-    }
-
-    /** 지난 트립의 도착지. 첫 트립이면 집. */
-    private fun lastStop(): Pair<Double, Double> =
-        store.data.mapRoutes.lastOrNull()?.let { it.toLat to it.toLng } ?: (HOME_LAT to HOME_LNG)
-
-    /** 탐험은 수도권의 새 곳으로, 아니면 집과 회사를 오간다. */
-    private fun nextStop(explore: Boolean): Pair<Double, Double> {
-        if (explore) {
-            val rnd = Random(seq)
-            return (37.25 + rnd.nextDouble() * 0.5) to (126.85 + rnd.nextDouble() * 0.75)
-        }
-        return if (lastStop() == WORK_LAT to WORK_LNG) HOME_LAT to HOME_LNG else WORK_LAT to WORK_LNG
-    }
-
-    private fun simulateOneDay(lineage: Lineage) {
-        clock.skipDays(1)
-        val hour = 18
-        val (dist, harsh) = pattern(lineage)
-        // 바람·흙·나무는 새 길(탐험) 위주, 빛·물은 늘 가던 길 위주 — 계열 판정이 또렷하게
-        val explore = lineage == Lineage.WIND || lineage == Lineage.EARTH || lineage == Lineage.TREE
-        repeat(3) {
-            val start = clock.today().atTime(hour, it * 25).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            val (lat, lng) = nextStop(explore)
-            val (startLat, startLng) = lastStop()
-            val cell = if (explore) "sim-${lineage.name}-${clock.today()}-${seq++}" else "sim-usual-${lineage.name}"
-            store.recordTrip(
-                TripResult(
-                    startMillis = start,
-                    endMillis = start + 22 * 60 * 1000,
-                    distanceKm = dist,
-                    harshEvents = harsh,
-                    placeCell = cell,
-                    placeName = if (explore) "새로운 길" else "늘 가던 길",
-                    lat = lat,
-                    lng = lng,
-                    startLat = startLat,
-                    startLng = startLng,
-                    // 실제 주행처럼 경로를 넣어 지도에서 길 주변이 밝혀지게 한다
-                    track = roadShape(MapRoute(lat, lng, startLat, startLng)),
-                ),
-            )
-            store.data.pendingCard?.let { store.saveTripCard(it) }
-            store.dismissTripCard()
-        }
-        store.pet()   // 교감 3종 각 +2
-        store.feed()
-        store.play()
-    }
-
-    /** 계열별 거리·급조작 패턴. */
-    private fun pattern(lineage: Lineage): Pair<Float, Int> = when (lineage) {
-        Lineage.WIND -> 28f to 0      // 긴 거리·고속
-        Lineage.LIGHT_RAY -> 12f to 4 // 도심 가다서다
-        Lineage.TREE -> 14f to 0      // 산길·숲길(탐험)
-        Lineage.WATER -> 16f to 0     // 중간 거리
-        Lineage.EARTH -> 5f to 1      // 10km 미만 짧은 트립
+    private fun trip(store: CarlingStore, km: Float, movingSeconds: Long, harshEvents: Int) {
+        val end = store.clock.now()
+        store.recordTrip(TripResult(end - movingSeconds * 1000 - sequence++, end, km, movingSeconds, harshEvents, simulated = true))
     }
 }

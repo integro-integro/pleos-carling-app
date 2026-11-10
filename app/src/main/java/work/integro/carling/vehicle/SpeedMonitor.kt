@@ -17,7 +17,7 @@ const val CAR_SPEED_PERMISSION = "android.car.permission.CAR_SPEED"
 
 /**
  * 차속으로 급가속·급감속 횟수를 센다. 트립 안전 점수의 재료다.
- * Vehicle SDK에 속도가 없어 AAOS 표준 CarPropertyManager를 쓴다.
+ * 급조작과 실제 이동시간을 함께 잰다. Vehicle SDK에 속도가 없어 AAOS 표준 CarPropertyManager를 쓴다.
  */
 class SpeedMonitor(private val context: Context) {
 
@@ -27,6 +27,14 @@ class SpeedMonitor(private val context: Context) {
     private var lastSpeed: Float? = null
     private var lastNanos: Long = 0
     private var inHarsh = false
+
+    /** 이번 운행의 실제 이동시간(초). 공회전·정차 시간은 빠진다. */
+    @Volatile
+    private var moving = 0f
+
+    /** 실제 이동시간. 차속을 구독하지 못했으면 null. */
+    val movingSeconds: Long?
+        get() = if (manager != null) moving.toLong() else null
 
     /** 현재 주행에서 감지한 급조작 횟수. 차속을 못 받으면 null. */
     @Volatile
@@ -49,6 +57,7 @@ class SpeedMonitor(private val context: Context) {
                         Log.i(TAG, "급조작 감지: %.1f m/s² (%.1f → %.1f m/s)".format(perSecond, prev, speed))
                     }
                     inHarsh = harsh
+                    if (prev > GrowthRules.MOVING_MPS || speed > GrowthRules.MOVING_MPS) moving += seconds
                     lastSpeed = speed
                     lastNanos = nanos
                 }
@@ -82,11 +91,20 @@ class SpeedMonitor(private val context: Context) {
         lastSpeed = null
         inHarsh = false
         harshEvents = if (manager != null) 0 else null
+        moving = 0f
+    }
+
+    /** 앱이 다시 떠서 저장된 이동시간부터 이어 센다. */
+    fun resumeTrip(movingSeconds: Long) {
+        lastSpeed = null
+        inHarsh = false
+        moving = movingSeconds.toFloat()
     }
 
     /** 주행 종료 후에는 다음 주행 전까지 카운트를 비워 둔다 (복구된 주행은 판정하지 않도록). */
     fun endTrip() {
         harshEvents = null
+        moving = 0f
     }
 
     fun stop() {
