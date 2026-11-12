@@ -28,7 +28,8 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val vehicle by app.vehicle.state.collectAsState()
-            CarlingApp(app.store, vehicle)
+            val live by app.tracker.live.collectAsState()
+            CarlingApp(app.store, vehicle, live)
         }
     }
 }

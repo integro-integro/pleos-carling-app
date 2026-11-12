@@ -60,6 +60,11 @@ android {
     }
 }
 
+android {
+    // 도메인 단위 테스트에서 android.util.Log 호출이 실패하지 않게
+    testOptions { unitTests.isReturnDefaultValues = true }
+}
+
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)

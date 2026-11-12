@@ -29,6 +29,8 @@ class CarlingApplication : Application() {
         private set
     lateinit var voice: Voice
         private set
+    lateinit var tracker: TripTracker
+        private set
     private lateinit var restrictions: UxRestrictions
 
     override fun onCreate() {
@@ -42,6 +44,6 @@ class CarlingApplication : Application() {
 
         vehicle.start()
         restrictions.start()
-        TripTracker(scope, vehicle, speed, store, voice).start()
+        tracker = TripTracker(scope, vehicle, speed, store, voice).also { it.start() }
     }
 }

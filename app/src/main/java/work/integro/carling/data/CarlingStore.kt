@@ -3,222 +3,368 @@ package work.integro.carling.data
 import android.content.Context
 import android.util.Log
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.serialization.json.Json
-import work.integro.carling.game.Form
-import work.integro.carling.game.GameClock
-import work.integro.carling.game.GrowthRules
-import work.integro.carling.game.Lineage
-import work.integro.carling.game.Quest
-import work.integro.carling.game.QuestKind
-import work.integro.carling.game.RoomItem
-import work.integro.carling.game.Space
-import work.integro.carling.game.nextItemFor
+import work.integro.carling.game.CardState
+import work.integro.carling.game.Clock
+import work.integro.carling.game.LuckyBoxRules
+import work.integro.carling.game.Personality
+import work.integro.carling.game.PersonalityInput
+import work.integro.carling.game.PersonalityResult
+import work.integro.carling.game.PersonalityRules
+import work.integro.carling.game.Rules
+import work.integro.carling.game.Stage
+import work.integro.carling.game.TimeBucket
+import work.integro.carling.game.TripCardRules
+import work.integro.carling.game.TripPurpose
+import work.integro.carling.game.TripStatus
 import java.util.UUID
+import kotlin.random.Random
 
 private const val TAG = "CarlingStore"
 
-/** 끝난 운행 한 번의 원재료. TripTracker가 만든다. */
-data class TripResult(
-    val startMillis: Long,
-    val endMillis: Long,
-    val distanceKm: Float?,
-    val movingSeconds: Long?,
-    val harshEvents: Int?,
-    val simulated: Boolean = false,
-)
-
 /**
- * 카링월드 상태를 기기 안에 저장한다.
- * 운행이 끝나면 카드·XP·아이템·친밀도·퀘스트를 한 번에 저장한다. 화면을 보지 않아도 결과는 남는다.
- * 모든 변경은 메인 스레드에서 호출한다.
+ * 마이카링 상태를 기기 안에 저장한다. 모든 변경은 메인 스레드에서, 상태 전체를 한 번에 바꿔 저장한다.
+ *
+ * 운행 확정과 카드 완성은 별개 이벤트이고, 둘 다 참이 되는 순간 [grant]가 보상을 한 번 지급한다.
+ * 보상 원장(rewards)에 운행 ID가 이미 있으면 아무것도 하지 않으므로, 같은 이벤트가 다시 처리돼도 중복 지급이 없다.
+ * (PRD는 Room 기본키 제약을 제안했지만, 지금은 한 번에 저장하는 JSON 상태로 같은 보장을 한다.)
  */
-class CarlingStore(context: Context, val clock: GameClock) {
+class CarlingStore(private val storage: Storage, val clock: Clock, private val random: Random = Random.Default) {
 
-    private val prefs = context.getSharedPreferences("carling", Context.MODE_PRIVATE)
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    constructor(context: Context, clock: Clock) : this(PrefsStorage(context), clock)
+
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; allowStructuredMapKeys = true }
 
     var data by mutableStateOf(load())
         private set
 
+    /** 이번 시동 시각. 이보다 먼저 확정된 임시 카드가 재안내 대상이다. 앱이 새로 뜨거나 새 운행이 시작될 때 바뀐다. */
+    var ignitionMillis by mutableLongStateOf(clock.now())
+        private set
+
     private fun load(): CarlingData {
-        // 리뉴얼 이전 저장값은 새 규칙과 맞지 않아 지운다
-        LEGACY_KEYS.forEach { key -> if (prefs.contains(key)) prefs.edit().remove(key).apply() }
-        val loaded = prefs.getString(KEY_DATA, null)?.let {
+        val loaded = storage.read()?.let {
             runCatching { json.decodeFromString(CarlingData.serializer(), it) }
                 .onFailure { e -> Log.w(TAG, "저장 데이터 복구 실패, 처음부터 시작", e) }
                 .getOrNull()
         }
-        return (loaded ?: newWorld()).let { if (it.carlingId.isEmpty()) it.copy(carlingId = UUID.randomUUID().toString()) else it }
+        return (loaded ?: CarlingData()).let { if (it.karingId.isEmpty()) it.copy(karingId = UUID.randomUUID().toString()) else it }
     }
-
-    /** 새 카링은 시작 퀘스트 하나를 갖고 시작한다. */
-    private fun newWorld() = CarlingData(
-        carlingId = UUID.randomUUID().toString(),
-        activeQuest = Quest(GrowthRules.questKind(0)),
-        questSequence = 1,
-    )
 
     private fun update(sync: Boolean = false, block: (CarlingData) -> CarlingData) {
         data = block(data)
-        val edit = prefs.edit().putString(KEY_DATA, json.encodeToString(CarlingData.serializer(), data))
-        if (sync) edit.commit() else edit.apply()
+        storage.write(json.encodeToString(CarlingData.serializer(), data), sync)
     }
+
+    private fun CarlingData.log(type: String, ref: Long? = null) = copy(events = (events + EventLog(clock.now(), type, ref)).takeLast(MAX_EVENTS))
+
+    private fun CarlingData.replaceTrip(t: TripRecord) = copy(trips = trips.map { if (it.tripId == t.tripId) t else it })
+    private fun CarlingData.replaceCard(c: TripCard) = copy(cards = cards.map { if (it.tripId == c.tripId) c else it })
 
     // ---- 운행 ----
 
-    fun beginTrip(startMillis: Long, startOdometerKm: Float?) =
-        update(sync = true) { it.copy(activeTrip = ActiveTrip(startMillis, startOdometerKm)) }
-
-    fun saveMovingSeconds(seconds: Long) =
-        update { d -> d.copy(activeTrip = d.activeTrip?.copy(movingSeconds = seconds)) }
-
-    fun clearActiveTrip() = update(sync = true) { it.copy(activeTrip = null) }
-
-    /** 운행 하나를 반영한다. 조건을 못 채우면 카드는 없고, 실제로 움직였다면 운전일만 남는다. */
-    fun recordTrip(result: TripResult) {
-        if (data.tripCards.any { it.sessionId == result.startMillis }) {
-            Log.i(TAG, "이미 처리한 운행: ${result.startMillis}")
-            return
-        }
-        update(sync = true) { applyTrip(it, result) }
+    fun markIgnition(now: Long = clock.now()) {
+        ignitionMillis = now
     }
 
-    private fun applyTrip(d: CarlingData, r: TripResult): CarlingData {
-        val moved = (r.distanceKm ?: 0f) > 0f || (r.movingSeconds ?: 0L) > 0L
-        val movedDays = if (moved) datesBetween(r.startMillis, r.endMillis) else emptySet()
-        val base = d.copy(drivingDays = d.drivingDays + movedDays)
-        if (!GrowthRules.isValidTrip(r.distanceKm, r.movingSeconds)) {
-            Log.i(TAG, "카드 조건 미달: ${r.distanceKm}km ${r.movingSeconds}s")
-            return base
+    /** TripStarted: 새 운행 ID 발급, 상태 = 기록 중. */
+    fun startTrip(now: Long, odometerKm: Float?, simulated: Boolean = false): Long {
+        update(sync = true) { d ->
+            d.copy(trips = (d.trips + TripRecord(now, TripStatus.RECORDING, now, startOdometerKm = odometerKm, simulated = simulated)).takeLast(MAX_TRIPS))
         }
-
-        val day = clock.dateOf(r.endMillis).toString()
-        val dayOrder = (d.dayValidTrips[day] ?: 0) + 1
-        val score = GrowthRules.safetyScore(r.harshEvents)
-        val (xpBase, xpBonus) = GrowthRules.tripXp(dayOrder, score)
-        val beforeLevel = GrowthRules.levelOf(d.totalXp)
-        val totalXp = d.totalXp + xpBase + xpBonus
-        val afterLevel = GrowthRules.levelOf(totalXp)
-
-        // 아이템: 카링이 있는 공간부터 아직 없는 것을 순서대로 지급하고, 열린 공간을 다 채웠으면 중복 수량만 늘린다
-        val nextNew = nextItemFor(d.currentSpace, afterLevel, d.placed)
-        val owned = d.placed.ifEmpty { RoomItem.ORDER }
-        val item = nextNew ?: owned[d.tripCards.size % owned.size]
-        val isNew = nextNew != null
-
-        // 퀘스트: 먼저 진행 중인 것에 반영하고, 이번에 새로 생긴 퀘스트는 다음 운행부터 센다
-        var active = d.activeQuest?.let { q ->
-            q.copy(trips = q.trips + 1, seconds = q.seconds + (r.movingSeconds ?: 0L), days = q.days + day)
-        }
-        var questsDone = d.questsDone
-        var questLine = active?.let { "${it.kind.title} ${it.progress}/${it.kind.target}${it.kind.unit}" }
-        if (active?.done == true) {
-            questsDone++
-            questLine = "퀘스트 완료 · ${active.kind.title}"
-            active = null
-        }
-        var sequence = d.questSequence
-        val queue = d.questQueue.toMutableList()
-        repeat(afterLevel - beforeLevel) { queue += GrowthRules.questKind(sequence++) }
-        val form = d.form
-        if (active == null) {
-            // 퀘스트가 모자라 진화가 영원히 막히지 않도록, 대기열이 비면 다음 것을 보충한다
-            if (queue.isEmpty() && form.next != null) queue += GrowthRules.questKind(sequence++)
-            active = queue.removeFirstOrNull()?.let { Quest(it) }
-        }
-
-        val number = (d.tripCards.lastOrNull()?.number ?: 0) + 1
-        val card = TripCard(
-            number = number,
-            sessionId = r.startMillis,
-            date = day,
-            startMillis = r.startMillis,
-            endMillis = r.endMillis,
-            distanceKm = r.distanceKm,
-            movingSeconds = r.movingSeconds,
-            score = score,
-            dayOrder = dayOrder,
-            xpBase = xpBase,
-            xpBonus = xpBonus,
-            item = item,
-            newPlacement = isNew,
-            questLine = questLine,
-            simulated = r.simulated,
-        )
-        return base.copy(
-            totalXp = totalXp,
-            dayValidTrips = (d.dayValidTrips + (day to dayOrder)).toList().takeLast(14).toMap(),
-            placed = if (isNew) d.placed + item else d.placed,
-            duplicates = if (isNew) d.duplicates else d.duplicates + (item to ((d.duplicates[item] ?: 0) + 1)),
-            activeQuest = active,
-            questQueue = queue,
-            questSequence = sequence,
-            questsDone = questsDone,
-            tripCards = (d.tripCards + card).takeLast(MAX_CARDS),
-            unseenCards = d.unseenCards + number,
-            newItems = if (isNew) d.newItems + item else d.newItems,
-        )
+        return now
     }
 
-    private fun datesBetween(startMillis: Long, endMillis: Long): Set<String> {
-        val out = linkedSetOf<String>()
-        var date = clock.dateOf(startMillis)
-        val end = clock.dateOf(endMillis)
-        while (!date.isAfter(end)) {
-            out += date.toString()
-            date = date.plusDays(1)
-        }
-        return out
+    /** 주행 중 스냅샷. 앱이 꺼져도 여기서 이어 간다. */
+    fun snapshot(now: Long, distanceKm: Float?, movingSec: Long?, harsh: Int?) {
+        val t = data.current?.takeIf { it.status == TripStatus.RECORDING } ?: return
+        update { it.replaceTrip(t.copy(lastSnapshotAt = now, distanceKm = distanceKm ?: t.distanceKm, movingSec = movingSec ?: t.movingSec, harsh = harsh ?: t.harsh)) }
     }
 
-    // ---- 보여주기 확인 ----
+    /**
+     * TripParked: 상태 = 주차됨, 주차 시각 저장. 최소 기준을 넘으면 임시 카드를 만들고(이미 있으면 수치만 갱신) 안내한다.
+     * 이미 완성한 카드는 다시 묻지 않는다.
+     */
+    fun park(now: Long, distanceKm: Float?, movingSec: Long?, harsh: Int?) {
+        val t = data.current?.takeIf { it.status == TripStatus.RECORDING } ?: return
+        val parked = t.copy(status = TripStatus.PARKED, lastParkAt = now, lastSnapshotAt = now, distanceKm = distanceKm ?: t.distanceKm, movingSec = movingSec ?: t.movingSec, harsh = harsh ?: t.harsh)
+        update(sync = true) { d ->
+            var next = d.replaceTrip(parked)
+            val card = d.card(t.tripId)
+            if (card == null && Rules.meetsCardMinimum(parked.distanceKm, parked.movingSec)) {
+                val number = (d.cards.maxOfOrNull { it.number } ?: 0) + 1
+                next = next.copy(cards = (next.cards + TripCard(t.tripId, number, createdAt = now)).takeLast(MAX_TRIPS), unseenCards = next.unseenCards + t.tripId).log("card_shown", t.tripId)
+            } else if (card?.state == CardState.DRAFT) {
+                next = next.copy(unseenCards = (next.unseenCards - t.tripId) + t.tripId).log("card_shown", t.tripId)
+            }
+            next
+        }
+    }
 
-    fun finishIntro() = update { it.copy(introSeen = true) }
-    fun ackCards() = update { it.copy(unseenCards = emptyList()) }
-    fun ackLevel() = update { it.copy(seenLevel = it.level) }
-    fun ackItems() = update { it.copy(newItems = emptyList()) }
+    /** TripResumed: 주차 5분 안에 다시 출발하면 같은 운행에 계속 쌓는다. 합칠 수 없으면 false. */
+    fun resume(now: Long): Boolean {
+        val t = data.current?.takeIf { it.status == TripStatus.PARKED } ?: return false
+        if (now - (t.lastParkAt ?: now) >= Rules.STOP_MERGE_MILLIS) return false
+        update(sync = true) { it.replaceTrip(t.copy(status = TripStatus.RECORDING, lastSnapshotAt = now)).copy(unseenCards = it.unseenCards - t.tripId) }
+        return true
+    }
 
-    // ---- 진화 ----
+    /**
+     * 주차 5분이 지난 운행을 확정한다. 앱이 꺼져 있던 동안의 5분도 여기서 소급 판정한다(확정 시각 = 주차 + 5분).
+     * 기록 중인 채로 앱이 꺼졌던 운행은 [liveTripId]가 아니면 마지막 스냅샷 시각에 주차한 것으로 본다.
+     */
+    fun settle(now: Long = clock.now(), liveTripId: Long? = null) {
+        val t = data.current ?: return
+        if (t.status == TripStatus.RECORDING && t.tripId != liveTripId && now - t.lastSnapshotAt >= Rules.SNAPSHOT_MILLIS * 3) {
+            Log.i(TAG, "기록 중 꺼진 운행: 마지막 스냅샷에 주차한 것으로 처리")
+            update(sync = true) { it.replaceTrip(t.copy(status = TripStatus.PARKED, lastParkAt = t.lastSnapshotAt)) }
+        }
+        val p = data.current?.takeIf { it.status == TripStatus.PARKED } ?: return
+        val parkAt = p.lastParkAt ?: return
+        if (now - parkAt >= Rules.STOP_MERGE_MILLIS) confirm(p.tripId, parkAt + Rules.STOP_MERGE_MILLIS)
+    }
 
-    /** 조건을 채웠을 때만 진화한다. 계열 진화 1에서는 [lineage]를 고른다. 레벨·친밀도·퀘스트는 차감하지 않는다. */
-    fun evolve(lineage: Lineage? = null) {
-        if (!data.canEvolve) return
-        val next = data.form.next ?: return
-        if (next == Form.EVO1 && lineage == null) return
-        update(sync = true) {
-            it.copy(
-                form = next,
-                lineage = if (next == Form.EVO1) lineage else it.lineage,
-                personality = it.personality ?: Personality.entries[clock.hourOf(clock.now()) % Personality.entries.size],
+    /** TripConfirmed: 거리·시간 동결. 이미 확정된 운행이면 상태 변화 없음. */
+    fun confirm(tripId: Long, at: Long) {
+        val t = data.trip(tripId) ?: return
+        if (t.status == TripStatus.CONFIRMED) return
+        update(sync = true) { d ->
+            // 기준 미달로 카드가 없는 운행도 기록으로 남는다
+            grant(d.replaceTrip(t.copy(status = TripStatus.CONFIRMED, confirmedAt = at)), tripId)
+        }
+        Log.i(TAG, "운행 확정: $tripId")
+    }
+
+    // ---- 카드 ----
+
+    /** CardCompleted: 목적을 골라 완성. 운행이 확정돼 있으면 같은 저장에서 보상까지 지급한다. */
+    fun complete(tripId: Long, purpose: TripPurpose, tags: List<String> = emptyList()) {
+        expireCards()
+        val card = data.card(tripId)?.takeIf { it.state == CardState.DRAFT } ?: return
+        val clean = tags.mapNotNull(TripCardRules::cleanTag).distinct()
+        update(sync = true) { d ->
+            val done = card.copy(state = CardState.COMPLETED, completedAt = clock.now(), purpose = purpose, tags = clean)
+            grant(
+                d.replaceCard(done).copy(
+                    unseenCards = d.unseenCards - tripId,
+                    customTags = (d.customTags - clean.toSet() + clean).takeLast(MAX_TAGS),
+                ).log("card_completed", tripId),
+                tripId,
             )
         }
     }
 
-    /** 열린 공간으로 옮긴다. */
-    fun moveTo(space: Space) {
-        if (!space.isOpen(data.level) || space == data.currentSpace) return
-        update { it.copy(currentSpace = space) }
+    /** 완성 후 목적 수정. 보상을 받은 카드라면 개성을 다시 계산한다. */
+    fun editPurpose(tripId: Long, purpose: TripPurpose) {
+        val card = data.card(tripId)?.takeIf { it.state == CardState.COMPLETED && it.purpose != purpose } ?: return
+        update(sync = true) { d -> recomputePersonality(d.replaceCard(card.copy(purpose = purpose))) }
     }
 
-    fun giveName(value: String) = update { it.copy(name = value) }
+    /** 임시 카드를 모두 완성한다. 목적은 추천값, 없으면 '기타'. */
+    fun completeAllDrafts() {
+        expireCards()
+        data.draftCards.forEach { c -> complete(c.tripId, suggestPurpose(c.tripId) ?: TripPurpose.OTHER, c.tags) }
+    }
+
+    /** '나중에': 안내만 닫는다. */
+    fun later() = update { d -> d.unseenCards.fold(d.copy(unseenCards = emptyList())) { acc, id -> acc.log("card_later", id) } }
+
+    /** 재안내를 보여준 순간부터 24시간 기한이 시작된다. 이미 재안내한 카드는 바뀌지 않는다. */
+    fun markReminded(ids: Collection<Long>, now: Long = clock.now()) {
+        if (ids.isEmpty()) return
+        update(sync = true) { d ->
+            ids.fold(d.copy(cards = d.cards.map { if (it.tripId in ids && it.state == CardState.DRAFT && it.remindedAt == null) it.copy(remindedAt = now) else it })) { acc, id -> acc.log("card_reprompted", id) }
+        }
+    }
+
+    /** 기한이 지난 임시 카드를 만료한다. 운행 기록은 그대로 남는다. */
+    fun expireCards(now: Long = clock.now()) {
+        val d0 = data
+        val expired = d0.cards.filter { TripCardRules.isExpired(it.clock(d0.trip(it.tripId)), now) }.map { it.tripId }.toSet()
+        if (expired.isEmpty()) return
+        update(sync = true) { d ->
+            expired.fold(
+                d.copy(
+                    cards = d.cards.map { if (it.tripId in expired) it.copy(state = CardState.EXPIRED, expiredAt = now) else it },
+                    unseenCards = d.unseenCards - expired,
+                ),
+            ) { acc, id -> acc.log("card_expired", id) }
+        }
+    }
+
+    /** 재안내할 카드(최신 순). */
+    fun reminderCards(now: Long = clock.now()): List<TripCard> =
+        data.cards.filter { TripCardRules.needsReminder(it.clock(data.trip(it.tripId)), ignitionMillis, now) && it.tripId !in data.unseenCards }.asReversed()
+
+    /** 위치 없이, 비슷한 시간대에 고른 목적을 기본값으로 제안한다. */
+    fun suggestPurpose(tripId: Long): TripPurpose? {
+        val trip = data.trip(tripId) ?: return null
+        val history = data.cards.filter { it.state == CardState.COMPLETED && it.purpose != null && it.tripId != tripId }
+            .mapNotNull { c -> data.trip(c.tripId)?.let { Triple(clock.hourOf(it.startedAt), isWeekend(it.startedAt), c.purpose!!) } }
+        return TripCardRules.suggestPurpose(clock.hourOf(trip.startedAt), isWeekend(trip.startedAt), history)
+    }
+
+    fun isWeekend(millis: Long): Boolean = clock.dateOf(millis).dayOfWeek.value >= 6
+
+    // ---- 보상 ----
+
+    /**
+     * RewardGranted: 운행 = 확정, 카드 = 완성, 원장에 운행 ID 없음 — 셋이 모두 참일 때만 한 번.
+     * 원장 기록 → 포인트 가산 → 단계 판정 → 개성 스냅샷 → 럭키박스 생성을 한 번에 반영한다.
+     */
+    private fun grant(d: CarlingData, tripId: Long): CarlingData {
+        val trip = d.trip(tripId) ?: return d
+        val card = d.card(tripId) ?: return d
+        if (trip.status != TripStatus.CONFIRMED || card.state != CardState.COMPLETED || tripId in d.rewards) return d
+        val now = clock.now()
+        val gp = Rules.growthPoints(trip.distanceKm, trip.movingSec)
+        val day = clock.dateOf(trip.confirmedAt ?: now).toString()
+        val boxesToday = d.dailyBoxes[day] ?: 0
+        val box = if (boxesToday < Rules.BOX_DAILY_MAX) {
+            val c = LuckyBoxRules.draw { random.nextDouble() }
+            LuckyBox((d.boxes.maxOfOrNull { it.boxId } ?: 0) + 1, tripId, c.bonusGp, c.badge, c.carItem, now)
+        } else null
+        val next = d.copy(
+            rewards = d.rewards + (tripId to Reward(now, gp, box?.boxId)),
+            totalGp = d.totalGp + gp,
+            boxes = if (box != null) (d.boxes + box).takeLast(MAX_TRIPS) else d.boxes,
+            dailyBoxes = if (box != null) (d.dailyBoxes + (day to boxesToday + 1)).toList().takeLast(60).toMap() else d.dailyBoxes,
+        ).log("reward_granted", tripId)
+        return recomputePersonality(updateStage(next))
+    }
+
+    private fun updateStage(d: CarlingData): CarlingData {
+        val target = Stage.of(d.totalGp, d.rewards.size)
+        if (target.ordinal <= d.stage.ordinal) return d // 단계는 내려가지 않는다
+        return d.copy(stage = target, unseenStage = target, stageHistory = d.stageHistory + StageChange(clock.now(), d.stage, target)).log("stage_changed")
+    }
+
+    /** 보상이 지급된 운행 중 최근 10장(출발 순)으로 개성을 다시 정하고, 바뀌었으면 근거를 남긴다. */
+    private fun recomputePersonality(d: CarlingData): CarlingData {
+        val result = personalityOf(d)
+        if (result.personality == d.personality) return d
+        val id = (d.snapshots.maxOfOrNull { it.id } ?: 0) + 1
+        val snap = PersonalitySnapshot(
+            id = id,
+            createdAt = clock.now(),
+            tripIds = result.used,
+            bucketCounts = result.bucketCounts,
+            purposeCounts = result.purposeCounts,
+            avgScore = result.avgScore,
+            before = d.personality,
+            after = result.personality,
+            line = changeLine(d.personality, result),
+        )
+        return d.copy(personality = result.personality, snapshots = (d.snapshots + snap).takeLast(30), unseenPersonality = id).log("personality_changed")
+    }
+
+    fun personalityOf(d: CarlingData = data): PersonalityResult {
+        val inputs = d.rewards.keys.mapNotNull { id -> d.trip(id) }.sortedBy { it.startedAt }.map { t ->
+            PersonalityInput(t.tripId, TimeBucket.of(clock.hourOf(t.startedAt)), d.card(t.tripId)?.purpose, t.score)
+        }
+        return PersonalityRules.compute(inputs)
+    }
+
+    private fun changeLine(before: Personality, r: PersonalityResult): String {
+        val after = r.personality
+        val parts = mutableListOf<String>()
+        if (before.body != after.body) parts += "몸 색이 ${after.body.colorName}이 되었어요 · ${r.bodyReason()}"
+        if (before.decoration != after.decoration) {
+            parts += after.decorationItem?.let { "${it.label}를 달았어요 · ${r.decorationReason()}" } ?: "장식을 내려놓았어요"
+        }
+        if (before.heartBright != after.heartBright) parts += if (after.heartBright) "심장이 선명하게 반짝여요 · ${r.heartReason()}" else "심장빛이 기본으로 돌아왔어요"
+        return parts.joinToString("\n")
+    }
+
+    /** 럭키박스 열기. 내용은 상자 생성 때 정해져 있고, 열면 보너스 포인트·배지·자동차 아이템이 들어온다. */
+    fun openBox(boxId: Int) {
+        val box = data.boxes.firstOrNull { it.boxId == boxId && it.openedAt == null } ?: return
+        update(sync = true) { d ->
+            val opened = d.copy(
+                boxes = d.boxes.map { if (it.boxId == boxId) it.copy(openedAt = clock.now()) else it },
+                totalGp = d.totalGp + box.bonusGp,
+                badges = box.badge?.let { d.badges + (it to (d.badges[it] ?: 0) + 1) } ?: d.badges,
+                carItems = box.carItem?.let { d.carItems + (it to (d.carItems[it] ?: 0) + 1) } ?: d.carItems,
+                // 처음 받은 자동차 아이템은 바로 붙여 준다
+                equippedCarItem = d.equippedCarItem ?: box.carItem,
+            ).log("box_opened", box.tripId)
+            updateStage(opened)
+        }
+    }
+
+    /** 자동차 꾸미기 아이템을 붙이거나(null이면 떼기) 바꾼다. 가진 것만. */
+    fun equip(item: work.integro.carling.game.CarItem?) {
+        if (item != null && (data.carItems[item] ?: 0) == 0) return
+        update { it.copy(equippedCarItem = item) }
+    }
+
+    /** 이 운행이 확정되면 받을 성장 포인트(완성 직후 예고용). */
+    fun expectedGp(tripId: Long): Int = data.trip(tripId)?.let { Rules.growthPoints(it.distanceKm, it.movingSec) } ?: 0
+
+    fun ackStage() = update { it.copy(unseenStage = null) }
+    fun ackPersonality() = update { it.copy(unseenPersonality = null) }
+    fun consent() = update { it.copy(consented = true).log("consented") }
+    fun giveName(value: String) = update { it.copy(name = value.trim().take(10).ifEmpty { null }) }
     fun toggleVoice() = update { it.copy(voiceOn = !it.voiceOn) }
+    fun logOpen(type: String) = update { it.log(type) }
 
     // ---- 개발자 도구 ----
 
     fun devReset() {
         clock.reset()
-        update(sync = true) { newWorld().copy(voiceOn = it.voiceOn, introSeen = true) }
+        update(sync = true) { CarlingData(karingId = UUID.randomUUID().toString(), consented = true, voiceOn = it.voiceOn) }
     }
 
-    /** 시뮬레이션용: 세 조건 중 레벨만 빠르게 올린다. */
-    fun devAddXp(xp: Int) = update { it.copy(totalXp = it.totalXp + xp) }
+    fun devAddGp(gp: Int) = update(sync = true) { d -> updateStage(d.copy(totalGp = d.totalGp + gp, rewards = if (d.rewards.isEmpty()) mapOf(-1L to Reward(clock.now(), 0, null)) else d.rewards)) }
+
+    /** 과거의 운행 하나를 확정 상태로 넣는다. [purpose]가 있으면 완성까지 해서 보상이 지급된다. */
+    fun devPastTrip(startAt: Long, km: Float, movingMin: Int, harsh: Int, purpose: TripPurpose?) {
+        if (data.trip(startAt) != null) return
+        val park = startAt + movingMin * Rules.MINUTE_MILLIS
+        val record = TripRecord(startAt, TripStatus.CONFIRMED, startAt, lastParkAt = park, confirmedAt = park + Rules.STOP_MERGE_MILLIS, lastSnapshotAt = park, distanceKm = km, movingSec = movingMin * 60L, harsh = harsh, simulated = true)
+        update(sync = true) { d ->
+            val number = (d.cards.maxOfOrNull { it.number } ?: 0) + 1
+            val card = TripCard(startAt, number, createdAt = park, state = if (purpose != null) CardState.COMPLETED else CardState.DRAFT, completedAt = if (purpose != null) park else null, purpose = purpose)
+            val withTrip = d.copy(trips = (d.trips + record).sortedBy { it.startedAt }.takeLast(MAX_TRIPS))
+            val withCard = if (Rules.meetsCardMinimum(km, movingMin * 60L, Rules.REAL_CARD_MIN_KM, Rules.REAL_CARD_MIN_MOVING_SEC)) withTrip.copy(cards = (withTrip.cards + card).takeLast(MAX_TRIPS)) else withTrip
+            grant(withCard, startAt)
+        }
+    }
 
     private companion object {
-        const val KEY_DATA = "world_v1"
-        /** 지난 카드는 모두 남긴다. 하루 5장씩 1년 반 정도의 안전 한도. */
-        const val MAX_CARDS = 3000
-        val LEGACY_KEYS = listOf("data", "tracks")
+        const val MAX_TRIPS = 3000
+        const val MAX_TAGS = 12
+        const val MAX_EVENTS = 400
+    }
+}
+
+/** 상태 문자열 하나를 읽고 쓰는 저장소. */
+interface Storage {
+    fun read(): String?
+    fun write(value: String, sync: Boolean)
+}
+
+/** 기기 안 SharedPreferences. */
+class PrefsStorage(context: Context) : Storage {
+    private val prefs = context.getSharedPreferences("carling", Context.MODE_PRIVATE)
+
+    init {
+        // 카링월드(방 꾸미기) 시절 저장값은 새 규칙과 맞지 않아 지운다
+        LEGACY_KEYS.forEach { key -> if (prefs.contains(key)) prefs.edit().remove(key).apply() }
+    }
+
+    override fun read(): String? = prefs.getString(KEY_DATA, null)
+
+    override fun write(value: String, sync: Boolean) {
+        val edit = prefs.edit().putString(KEY_DATA, value)
+        if (sync) edit.commit() else edit.apply()
+    }
+
+    private companion object {
+        const val KEY_DATA = "mycarling_v1"
+        val LEGACY_KEYS = listOf("data", "tracks", "world_v1")
     }
 }

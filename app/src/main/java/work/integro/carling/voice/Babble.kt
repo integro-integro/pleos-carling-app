@@ -4,8 +4,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.util.Log
-import work.integro.carling.game.Form
-import work.integro.carling.game.Lineage
+import work.integro.carling.game.Stage
 import java.util.concurrent.Executors
 import kotlin.math.PI
 import kotlin.math.exp
@@ -31,20 +30,28 @@ object Babble {
     @Volatile var enabled = true
     /** 목소리 단계 (-1 = 알, 소리 없음). */
     @Volatile var stage = 0
-    @Volatile var lineage: Lineage? = null
+    @Volatile var lineage: Timbre? = null
 
     private val worker = Executors.newSingleThreadExecutor()
     @Volatile private var current: AudioTrack? = null
 
-    /** 진화 단계를 목소리 단계로 바꾼다. 알은 말하지 않는다. */
-    fun stageOf(form: Form): Int = when (form) {
-        Form.EGG -> -1
-        Form.BABY -> 0
-        Form.EVO1 -> 3
+    /** 성장 단계를 목소리 단계로 바꾼다. 알은 말하지 않는다. */
+    fun stageOf(stage: Stage): Int = when (stage) {
+        Stage.EGG, Stage.CRACKED -> -1
+        Stage.BABY -> 0
+        Stage.BREEZE -> 2
+        Stage.MYCARLING -> 3
+    }
+
+    /** 단계별 음색. 산들카링은 바람 섞인 소리, 마이카링은 밝은 소리. */
+    fun timbreOf(stage: Stage): Timbre? = when (stage) {
+        Stage.BREEZE -> Timbre.WIND
+        Stage.MYCARLING -> Timbre.LIGHT
+        else -> null
     }
 
     /** 단계별 기본 음높이(Hz). 사람 말소리(200Hz 안팎)보다 훨씬 높게 해서 작은 생물처럼 들리게 한다. */
-    internal fun basePitch(stage: Int, lineage: Lineage?): Double {
+    internal fun basePitch(stage: Int, lineage: Timbre?): Double {
         val byStage = when {
             stage <= 0 -> 860.0
             stage == 1 -> 800.0
@@ -54,9 +61,9 @@ object Babble {
             else -> 620.0
         }
         return byStage * when (lineage) {
-            Lineage.EARTH -> 0.9
-            Lineage.LIGHT_RAY -> 1.06
-            Lineage.WIND -> 1.03
+            Timbre.EARTH -> 0.9
+            Timbre.LIGHT -> 1.06
+            Timbre.WIND -> 1.03
             else -> 1.0
         }
     }
@@ -129,7 +136,7 @@ object Babble {
         return out
     }
 
-    internal fun synthLine(text: String, base: Double, lineage: Lineage?): ShortArray {
+    internal fun synthLine(text: String, base: Double, lineage: Timbre?): ShortArray {
         val sy = syllables(text)
         if (sy.isEmpty()) return synthChirp(base, lineage)
         val trimmed = text.trimEnd()
@@ -160,7 +167,7 @@ object Babble {
         return toPcm(buf)
     }
 
-    internal fun synthChirp(base: Double, lineage: Lineage?): ShortArray {
+    internal fun synthChirp(base: Double, lineage: Timbre?): ShortArray {
         val buf = ArrayList<Float>()
         val rnd = Random(7)
         synthBlip(buf, base * 0.95, 0.07, 1.3, bright = 0.3, lineage, rnd)
@@ -173,14 +180,14 @@ object Babble {
      * 음절 하나. 시작은 살짝 높았다가 내려앉는 "뽀" 모양(귀여운 느낌의 핵심)이고,
      * [endRise]가 1보다 크면 끝에서 다시 올라간다(질문).
      */
-    private fun synthBlip(buf: MutableList<Float>, pitch: Double, dur: Double, endRise: Double, bright: Double, lineage: Lineage?, rnd: Random) {
+    private fun synthBlip(buf: MutableList<Float>, pitch: Double, dur: Double, endRise: Double, bright: Double, lineage: Timbre?, rnd: Random) {
         val len = (RATE * dur).toInt()
         val attack = (RATE * 0.006).toInt()
-        val vibRate = if (lineage == Lineage.WATER) 22.0 else 9.0
-        val vibDepth = if (lineage == Lineage.WATER) 0.035 else 0.012
-        val h2 = 0.18 + bright * 0.35 + if (lineage == Lineage.LIGHT_RAY) 0.15 else 0.0
-        val h3 = if (lineage == Lineage.TREE) 0.02 else 0.06 + bright * 0.12 + if (lineage == Lineage.EARTH) 0.12 else 0.0
-        val breath = if (lineage == Lineage.WIND) 0.10 else 0.0
+        val vibRate = if (lineage == Timbre.WATER) 22.0 else 9.0
+        val vibDepth = if (lineage == Timbre.WATER) 0.035 else 0.012
+        val h2 = 0.18 + bright * 0.35 + if (lineage == Timbre.LIGHT) 0.15 else 0.0
+        val h3 = if (lineage == Timbre.TREE) 0.02 else 0.06 + bright * 0.12 + if (lineage == Timbre.EARTH) 0.12 else 0.0
+        val breath = if (lineage == Timbre.WIND) 0.10 else 0.0
         var phase = 0.0
         for (i in 0 until len) {
             val t = i.toDouble() / len
@@ -212,3 +219,6 @@ object Babble {
         0.6, 0.8, 0.7, 0.8, 0.4, 0.8, 0.5, 0.8, 0.2, 0.4, 0.6, 0.6, 0.3, 0.1, 0.3, 0.6, 0.7, 0.2, 0.3, 0.7, 1.0,
     )
 }
+
+/** 옹알이 음색. */
+enum class Timbre { WIND, LIGHT, TREE, WATER, EARTH }

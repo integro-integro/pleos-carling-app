@@ -7,8 +7,7 @@ import android.car.hardware.property.CarPropertyManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.util.Log
-import work.integro.carling.game.GrowthRules
-import kotlin.math.abs
+import work.integro.carling.game.Rules
 
 private const val TAG = "SpeedMonitor"
 
@@ -49,15 +48,16 @@ class SpeedMonitor(private val context: Context) {
             if (prev != null && nanos > lastNanos) {
                 val seconds = (nanos - lastNanos) / 1e9f
                 if (seconds >= 0.5f) {
-                    val perSecond = abs(speed - prev) / seconds
-                    val harsh = perSecond >= GrowthRules.HARSH_DELTA_MPS
+                    val perSecond = (speed - prev) / seconds
+                    // 급가속 +3.0 m/s² 이상, 급감속 −3.5 m/s² 이하 (PRD 4.4)
+                    val harsh = perSecond >= Rules.HARSH_ACCEL_MPS2 || perSecond <= Rules.HARSH_BRAKE_MPS2
                     // 이어지는 급가속/급감속은 한 번으로 센다
                     if (harsh && !inHarsh) {
                         harshEvents = (harshEvents ?: 0) + 1
                         Log.i(TAG, "급조작 감지: %.1f m/s² (%.1f → %.1f m/s)".format(perSecond, prev, speed))
                     }
                     inHarsh = harsh
-                    if (prev > GrowthRules.MOVING_MPS || speed > GrowthRules.MOVING_MPS) moving += seconds
+                    if (prev > Rules.MOVING_MPS || speed > Rules.MOVING_MPS) moving += seconds
                     lastSpeed = speed
                     lastNanos = nanos
                 }
@@ -94,11 +94,12 @@ class SpeedMonitor(private val context: Context) {
         moving = 0f
     }
 
-    /** 앱이 다시 떠서 저장된 이동시간부터 이어 센다. */
-    fun resumeTrip(movingSeconds: Long) {
+    /** 저장된 이동시간부터 이어 센다(앱이 다시 떴거나, 짧은 정차 뒤 같은 여정으로 다시 출발). [harsh]를 알면 급조작 수도 이어 센다. */
+    fun resumeTrip(movingSeconds: Long, harsh: Int? = null) {
         lastSpeed = null
         inHarsh = false
         moving = movingSeconds.toFloat()
+        if (harsh != null && manager != null) harshEvents = harsh
     }
 
     /** 주행 종료 후에는 다음 주행 전까지 카운트를 비워 둔다 (복구된 주행은 판정하지 않도록). */

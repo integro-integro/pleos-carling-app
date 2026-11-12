@@ -2,7 +2,7 @@ package work.integro.carling.voice
 
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import work.integro.carling.game.Lineage
+
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -25,10 +25,10 @@ class BabbleTest {
         val samples = listOf(
             Triple("1_baby_tap", 0 to null, "히히, 간지러워요!"),
             Triple("2_baby_ask", 0 to null, "오늘은 어디 가요?"),
-            Triple("3_wind", 3 to Lineage.WIND, "야호! 더 빨리, 더 멀리!"),
-            Triple("4_light", 3 to Lineage.LIGHT_RAY, "반짝반짝, 같이 놀아줘서 고마워요."),
-            Triple("5_water", 3 to Lineage.WATER, "물결처럼 출렁출렁~"),
-            Triple("6_earth_adult", 5 to Lineage.EARTH, "오늘도 같이 달려서 좋았어요."),
+            Triple("3_wind", 3 to Timbre.WIND, "야호! 더 빨리, 더 멀리!"),
+            Triple("4_light", 3 to Timbre.LIGHT, "반짝반짝, 같이 놀아줘서 고마워요."),
+            Triple("5_water", 3 to Timbre.WATER, "물결처럼 출렁출렁~"),
+            Triple("6_earth_adult", 5 to Timbre.EARTH, "오늘도 같이 달려서 좋았어요."),
         )
         for ((name, look, text) in samples) {
             val (stage, lineage) = look

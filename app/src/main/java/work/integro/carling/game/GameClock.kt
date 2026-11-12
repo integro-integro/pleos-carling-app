@@ -12,7 +12,7 @@ import java.time.ZoneId
  * 게임 시계. 데모·테스트를 위해 '며칠 뒤'로 건너뛸 수 있다.
  * 출시 빌드에서는 offset을 쓰지 않는다.
  */
-class GameClock(context: Context) {
+class GameClock(context: Context) : Clock {
 
     private val prefs = context.getSharedPreferences("carling_clock", Context.MODE_PRIVATE)
     private val zone: ZoneId = ZoneId.systemDefault()
@@ -22,21 +22,23 @@ class GameClock(context: Context) {
 
     init { shared = offsetMillis }
 
-    fun now(): Long = System.currentTimeMillis() + offsetMillis
+    override fun now(): Long = System.currentTimeMillis() + offsetMillis
 
-    fun today(): LocalDate = dateOf(now())
+    override fun today(): LocalDate = dateOf(now())
 
-    fun dateOf(millis: Long): LocalDate = Instant.ofEpochMilli(millis).atZone(zone).toLocalDate()
+    override fun dateOf(millis: Long): LocalDate = Instant.ofEpochMilli(millis).atZone(zone).toLocalDate()
 
-    fun hourOf(millis: Long): Int = Instant.ofEpochMilli(millis).atZone(zone).hour
+    override fun hourOf(millis: Long): Int = Instant.ofEpochMilli(millis).atZone(zone).hour
 
-    fun skipDays(days: Int) {
-        offsetMillis += days * DAY_MILLIS
+    fun skipDays(days: Int) = skipMillis(days * DAY_MILLIS)
+
+    override fun skipMillis(millis: Long) {
+        offsetMillis += millis
         shared = offsetMillis
         prefs.edit().putLong(KEY_OFFSET, offsetMillis).apply()
     }
 
-    fun reset() {
+    override fun reset() {
         offsetMillis = 0L
         shared = 0L
         prefs.edit().clear().apply()
