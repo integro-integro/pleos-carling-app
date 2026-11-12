@@ -83,6 +83,15 @@ class RulesTest {
     }
 
     @Test
+    fun cardTiers() {
+        assertEquals(CardTier.SPECIAL, CardTier.of(1, 3f, 70))
+        assertEquals(CardTier.SPECIAL, CardTier.of(9, 100f, null))
+        assertEquals(CardTier.SHINE, CardTier.of(9, 20f, 85))
+        assertEquals(CardTier.BASIC, CardTier.of(9, 99.9f, 84))
+        assertEquals(CardTier.BASIC, CardTier.of(9, 20f, null))
+    }
+
+    @Test
     fun luckyBoxDrawIsBounded() {
         val seq = listOf(0.999, 0.1, 0.5).iterator()
         val c = LuckyBoxRules.draw { seq.next() }

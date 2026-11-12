@@ -183,6 +183,26 @@ enum class CarItem(val label: String, val icon: String) {
     CLOVER("네잎클로버", "🍀"),
 }
 
+/**
+ * 카드 등급(시안 v1 제안, 2026-11-12 적용). 보상량은 같고 모습만 다르다.
+ * 특별: 첫 카드 또는 100km 이상 장거리. 반짝: 운전점수 85점 이상(심장빛 기준과 같다).
+ */
+enum class CardTier(val label: String) {
+    BASIC("기본"),
+    SHINE("반짝"),
+    SPECIAL("특별");
+
+    companion object {
+        const val SPECIAL_KM = 100f
+
+        fun of(cardNumber: Int, distanceKm: Float?, score: Int?): CardTier = when {
+            cardNumber == 1 || (distanceKm ?: 0f) >= SPECIAL_KM -> SPECIAL
+            score != null && score >= Rules.HEART_BRIGHT_SCORE -> SHINE
+            else -> BASIC
+        }
+    }
+}
+
 /** 카링 개성 3축의 결과. */
 @Serializable
 data class Personality(
