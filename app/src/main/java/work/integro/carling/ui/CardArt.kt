@@ -59,12 +59,16 @@ fun DrawScope.drawTripScene(purpose: TripPurpose?, time: TimeBucket, seed: Int) 
     }
 
     when (purpose) {
-        TripPurpose.COMMUTE -> commute(w, h, horizon, time, r)
-        TripPurpose.FIELD -> field(w, h, horizon, time, r)
+        TripPurpose.TO_WORK, TripPurpose.FROM_WORK, TripPurpose.COMMUTE -> commute(w, h, horizon, time, r)
+        TripPurpose.WORK -> field(w, h, horizon, time, r)
         TripPurpose.FAMILY -> family(w, h, horizon, time, r)
         TripPurpose.TRAVEL -> travel(w, h, horizon, time, r)
         TripPurpose.HOBBY -> hobby(w, h, horizon, time, r)
         TripPurpose.OTHER -> other(w, h, horizon, time, r)
+        TripPurpose.MEAL -> street(w, h, horizon, time, r, listOf(Color(0xFFFF9A8A), Color(0xFFFFD27A), Color(0xFFFFB0CD)), lanterns = true)
+        TripPurpose.SHOPPING -> street(w, h, horizon, time, r, listOf(Color(0xFF8FD19A), Color(0xFF9FD3FF), Color(0xFFFFD27A)), lanterns = false)
+        TripPurpose.DATE -> date(w, h, horizon, time, r)
+        TripPurpose.EXERCISE -> exercise(w, h, horizon, time, r)
         null -> {
             hills(w, h, horizon, 10f, Color(0xFFD7D3FB).at(time), 1.1f)
             glowLine(w, horizon - 4, time)
@@ -250,4 +254,75 @@ private fun DrawScope.other(w: Float, h: Float, horizon: Float, t: TimeBucket, r
     road(w, h, horizon, Color(0xFFE8E5FB).at(t), if (t == TimeBucket.NIGHT) Color(0xFF8CFFD6) else Color(0xFF3CCB9A))
     val c = if (t == TimeBucket.NIGHT) Color(0xFF8CFFD6) else Color.White
     repeat(14) { sparkle(r.nextFloat() * w, r.nextFloat() * horizon * 0.9f, h / 100 * (2 + r.nextFloat() * 3), c) }
+}
+
+/** 식사·장보기: 차양이 달린 가게 거리. 식사는 줄 전등, 장보기는 장바구니 카트. */
+private fun DrawScope.street(w: Float, h: Float, horizon: Float, t: TimeBucket, r: Random, awnings: List<Color>, lanterns: Boolean) {
+    val unit = h / 200f
+    hills(w, h, horizon, 6 * unit, Color(0xFFD7D3FB).at(t), 0.9f)
+    val shopW = w / 4.2f
+    for (i in 0 until 5) {
+        val x = -shopW * 0.3f + i * shopW
+        val top = horizon - h * (0.22f + r.nextFloat() * 0.08f)
+        drawRect(Color(0xFFFFF4EC).at(t), Offset(x, top), Size(shopW * 0.92f, h))
+        // 창문 불빛
+        drawRoundRect((if (t == TimeBucket.NIGHT || t == TimeBucket.EVENING) Color(0xFFFFE6A3) else Color(0xFFCFE8FF)).at(if (t == TimeBucket.NIGHT) TimeBucket.DAY else t), Offset(x + shopW * 0.12f, horizon - h * 0.11f), Size(shopW * 0.68f, h * 0.1f), androidx.compose.ui.geometry.CornerRadius(6 * unit))
+        // 줄무늬 차양
+        val c = awnings[i % awnings.size].at(t)
+        val aw = Path().apply { moveTo(x - 4 * unit, top + h * 0.06f); lineTo(x + shopW * 0.96f, top + h * 0.06f); lineTo(x + shopW * 0.9f, top + h * 0.13f); lineTo(x + 2 * unit, top + h * 0.13f); close() }
+        drawPath(aw, c)
+        for (k in 0 until 4) drawRect(Color.White.copy(alpha = 0.55f), Offset(x + k * shopW * 0.25f, top + h * 0.06f), Size(shopW * 0.1f, h * 0.07f))
+    }
+    drawRect(Color(0xFFE8E5FB).at(t), Offset(0f, horizon + 2), Size(w, h))
+    if (lanterns) {
+        val y0 = h * 0.18f
+        drawLine(Color(0x88FFFFFF), Offset(0f, y0), Offset(w, y0 + h * 0.06f), strokeWidth = 1.5f * unit)
+        for (i in 0 until 9) {
+            val x = w * (0.05f + i * 0.11f)
+            drawCircle(listOf(Color(0xFFFFD27A), Color(0xFFFF9A8A), Color(0xFFFFF1B0))[i % 3], 4.5f * unit, Offset(x, y0 + h * 0.06f * x / w + 6 * unit))
+        }
+    } else {
+        // 장바구니 카트
+        val cx = w * 0.62f
+        val cy = h * 0.86f
+        val s = h * 0.13f
+        drawRoundRect(Color(0xFF7CC4F2), Offset(cx, cy - s), Size(s * 1.3f, s * 0.75f), androidx.compose.ui.geometry.CornerRadius(5 * unit))
+        drawCircle(Color(0xFFFF9A8A), s * 0.18f, Offset(cx + s * 0.3f, cy - s * 1.05f))
+        drawCircle(Color(0xFF8FD19A), s * 0.2f, Offset(cx + s * 0.7f, cy - s * 1.08f))
+        drawCircle(Color(0xFF444466), s * 0.13f, Offset(cx + s * 0.2f, cy))
+        drawCircle(Color(0xFF444466), s * 0.13f, Offset(cx + s * 1.1f, cy))
+    }
+}
+
+/** 데이트: 벚꽃길 위로 떠오르는 하트. */
+private fun DrawScope.date(w: Float, h: Float, horizon: Float, t: TimeBucket, r: Random) {
+    hobby(w, h, horizon, t, r)
+    for (i in 0 until 7) {
+        val cx = w * (0.15f + r.nextFloat() * 0.7f)
+        val cy = h * (0.12f + r.nextFloat() * 0.35f)
+        val s = h * (0.035f + r.nextFloat() * 0.03f)
+        val heart = Path().apply {
+            moveTo(cx, cy + s)
+            cubicTo(cx - s * 1.6f, cy - s * 0.2f, cx - s * 0.6f, cy - s * 1.4f, cx, cy - s * 0.4f)
+            cubicTo(cx + s * 0.6f, cy - s * 1.4f, cx + s * 1.6f, cy - s * 0.2f, cx, cy + s)
+            close()
+        }
+        drawPath(heart, Color(0xFFFF7FA8).copy(alpha = 0.65f + r.nextFloat() * 0.3f))
+    }
+}
+
+/** 운동: 공원 언덕을 도는 트랙과 깃발. */
+private fun DrawScope.exercise(w: Float, h: Float, horizon: Float, t: TimeBucket, r: Random) {
+    val unit = h / 200f
+    hills(w, h, horizon - 10 * unit, 12 * unit, Color(0xFFA9D9B0).at(t), 0.7f)
+    hills(w, h, horizon + 8 * unit, 6 * unit, Color(0xFF8FD19A).at(t), 2.0f)
+    for (i in 0 until 4) tree(w * (0.06f + i * 0.28f), horizon + 10 * unit, h * 0.2f, Color(0xFF6FBF86).at(t), Color(0xFF8A6A4E).at(t))
+    // 붉은 트랙 두 줄
+    val track = Path().apply { moveTo(-10f, h * 0.98f); cubicTo(w * 0.3f, h * 0.7f, w * 0.7f, h * 0.78f, w + 10f, h * 0.68f) }
+    drawPath(track, Color(0xFFF2A28A).at(t), style = Stroke(width = h * 0.13f))
+    drawPath(track, Color.White.copy(alpha = 0.8f), style = Stroke(width = 1.6f * unit, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10 * unit, 7 * unit))))
+    // 결승 깃발
+    val fx = w * 0.82f
+    drawLine(Color(0xFF777799), Offset(fx, h * 0.72f), Offset(fx, h * 0.42f), strokeWidth = 2 * unit)
+    for (i in 0 until 3) for (j in 0 until 2) drawRect(if ((i + j) % 2 == 0) Color.White else Color(0xFF444466), Offset(fx + i * 6 * unit, h * 0.42f + j * 6 * unit), Size(6 * unit, 6 * unit))
 }

@@ -7,6 +7,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -97,4 +98,73 @@ private fun DrawScope.road(night: Boolean) {
     listOf(-0.9f, -0.35f, 0.35f, 0.9f).forEach { k ->
         drawLine(Brush.verticalGradient(listOf(Color.Transparent, c), startY = vy, endY = size.height), Offset(vx + k * 40f, vy), Offset(vx + k * size.width * 0.55f, size.height), strokeWidth = 3f)
     }
+}
+
+/** 차 안 배경 그림의 가로세로 비율(2688×1520). */
+internal const val CABIN_ASPECT = 2688f / 1520f
+
+/** 구도 × 시간대 배경 그림. 원본 생성(2026-11-12, 낮 그림을 기준으로 아침·저녁·밤을 같은 실내로). */
+@androidx.annotation.DrawableRes
+internal fun cabinRes(view: work.integro.carling.game.CabinView, bucket: TimeBucket): Int = when (view) {
+    work.integro.carling.game.CabinView.DASH -> when (bucket) {
+        TimeBucket.MORNING -> work.integro.carling.R.drawable.bg_dash_morning
+        TimeBucket.DAY -> work.integro.carling.R.drawable.bg_dash_day
+        TimeBucket.EVENING -> work.integro.carling.R.drawable.bg_dash_evening
+        TimeBucket.NIGHT -> work.integro.carling.R.drawable.bg_dash_night
+    }
+    work.integro.carling.game.CabinView.DRIVER -> when (bucket) {
+        TimeBucket.MORNING -> work.integro.carling.R.drawable.bg_driver_morning
+        TimeBucket.DAY -> work.integro.carling.R.drawable.bg_driver_day
+        TimeBucket.EVENING -> work.integro.carling.R.drawable.bg_driver_evening
+        TimeBucket.NIGHT -> work.integro.carling.R.drawable.bg_driver_night
+    }
+}
+
+/** 카링 탭의 차 안 배경. 시간대가 바뀌면 부드럽게 넘어간다. */
+@Composable
+fun CabinBackdrop(view: work.integro.carling.game.CabinView, bucket: TimeBucket, modifier: Modifier = Modifier, tone: work.integro.carling.game.CabinTone = LocalCabinTone.current) {
+    val filter = remember(tone) { toneFilter(tone) }
+    androidx.compose.animation.Crossfade(targetState = cabinRes(view, bucket), animationSpec = tween(900), label = "cabin", modifier = modifier) { res ->
+        androidx.compose.foundation.Image(
+            androidx.compose.ui.res.painterResource(res),
+            contentDescription = null,
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            colorFilter = filter,
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+}
+
+/** 화면 전체가 같은 배경 톤을 쓰도록 위에서 내려 준다. */
+val LocalCabinTone = androidx.compose.runtime.staticCompositionLocalOf { work.integro.carling.game.CabinTone.CALM }
+
+/** 채도 → 채널 배율·대비 → 밝기 순서의 색 보정. */
+internal fun toneFilter(t: work.integro.carling.game.CabinTone): androidx.compose.ui.graphics.ColorFilter? {
+    if (t == work.integro.carling.game.CabinTone.ORIGINAL) return null
+    val s = t.sat
+    val lr = 0.213f; val lg = 0.715f; val lb = 0.072f
+    val sat = arrayOf(
+        floatArrayOf(lr * (1 - s) + s, lg * (1 - s), lb * (1 - s)),
+        floatArrayOf(lr * (1 - s), lg * (1 - s) + s, lb * (1 - s)),
+        floatArrayOf(lr * (1 - s), lg * (1 - s), lb * (1 - s) + s),
+    )
+    val mul = floatArrayOf(t.r, t.g, t.b)
+    val off = 128f * (1 - t.contrast) + t.lift
+    val m = FloatArray(20)
+    for (row in 0 until 3) {
+        for (col in 0 until 3) m[row * 5 + col] = sat[row][col] * mul[row] * t.contrast
+        m[row * 5 + 4] = off
+    }
+    m[18] = 1f
+    return androidx.compose.ui.graphics.ColorFilter.colorMatrix(androidx.compose.ui.graphics.ColorMatrix(m))
+}
+
+/** 차 안 배경을 화면에 꽉 채워 잘라 그릴 때, 카링을 놓을 자리(화면 기준 dp). */
+internal class CabinGeometry(val anchorX: androidx.compose.ui.unit.Dp, val anchorY: androidx.compose.ui.unit.Dp, val karH: androidx.compose.ui.unit.Dp, val wander: androidx.compose.ui.unit.Dp)
+
+internal fun cabinGeometry(w: androidx.compose.ui.unit.Dp, h: androidx.compose.ui.unit.Dp, view: work.integro.carling.game.CabinView): CabinGeometry {
+    val (imgW, imgH) = if (w / h < CABIN_ASPECT) (h * CABIN_ASPECT) to h else w to (w / CABIN_ASPECT)
+    val ox = (w - imgW) / 2
+    val oy = (h - imgH) / 2
+    return CabinGeometry(ox + imgW * view.anchorX, oy + imgH * view.anchorY, imgH * view.heightFrac, imgW * view.wander)
 }

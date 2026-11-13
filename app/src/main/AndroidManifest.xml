@@ -10,6 +10,8 @@
     <uses-permission android:name="pleos.car.permission.CAR_INFO" />
     <!-- TextToSpeech SDK: 음성 한마디 -->
     <uses-permission android:name="pleos.car.permission.TTS_SERVICE" />
+    <!-- FusedLocation SDK: 출발·도착 동네(행정동)만 판정. 좌표·경로는 저장하지 않는다. 런타임 권한 -->
+    <uses-permission android:name="pleos.car.permission.FUSED_LOCATION" />
     <!-- AAOS 차속 (실제 이동시간·급조작 판정). 런타임 권한 -->
     <uses-permission android:name="android.car.permission.CAR_SPEED" />
     <!-- 시동(부팅) 때 앱을 깨워 화면을 열지 않아도 주행을 기록 -->

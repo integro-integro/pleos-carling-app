@@ -35,6 +35,14 @@ class SpeedMonitor(private val context: Context) {
     val movingSeconds: Long?
         get() = if (manager != null) moving.toLong() else null
 
+    /** 지금 속도(km/h). 받지 못했으면 null. */
+    val speedKmh: Float? get() = lastSpeed?.times(3.6f)
+
+    /** 마지막 급조작 시각(System.currentTimeMillis). */
+    @Volatile
+    var lastHarshAt: Long? = null
+        private set
+
     /** 현재 주행에서 감지한 급조작 횟수. 차속을 못 받으면 null. */
     @Volatile
     var harshEvents: Int? = null
@@ -54,6 +62,7 @@ class SpeedMonitor(private val context: Context) {
                     // 이어지는 급가속/급감속은 한 번으로 센다
                     if (harsh && !inHarsh) {
                         harshEvents = (harshEvents ?: 0) + 1
+                        lastHarshAt = System.currentTimeMillis()
                         Log.i(TAG, "급조작 감지: %.1f m/s² (%.1f → %.1f m/s)".format(perSecond, prev, speed))
                     }
                     inHarsh = harsh

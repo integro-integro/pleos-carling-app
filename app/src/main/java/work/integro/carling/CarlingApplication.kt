@@ -4,6 +4,8 @@ import android.app.Application
 import kotlinx.coroutines.MainScope
 import work.integro.carling.data.CarlingStore
 import work.integro.carling.game.GameClock
+import work.integro.carling.geo.KoreaAtlas
+import work.integro.carling.geo.VehicleLocation
 import work.integro.carling.trip.TripTracker
 import work.integro.carling.vehicle.SpeedMonitor
 import work.integro.carling.vehicle.UxRestrictions
@@ -31,7 +33,20 @@ class CarlingApplication : Application() {
         private set
     lateinit var tracker: TripTracker
         private set
+    lateinit var location: VehicleLocation
+        private set
     private lateinit var restrictions: UxRestrictions
+
+    /** 지금 동네(행정동 코드). 동의·권한이 없거나 위치를 모르면 null. 좌표는 판정에만 쓰고 버린다. */
+    private suspend fun currentDong(): String? {
+        if (store.data.locationConsent != true) return null
+        if (checkSelfPermission(work.integro.carling.geo.FUSED_LOCATION_PERMISSION) != android.content.pm.PackageManager.PERMISSION_GRANTED) return null
+        location.start()
+        val (lat, lng) = location.current() ?: return null
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            runCatching { KoreaAtlas.load(this@CarlingApplication).locate(lng.toFloat(), lat.toFloat()) }.getOrNull()
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -41,9 +56,12 @@ class CarlingApplication : Application() {
         speed = SpeedMonitor(this)
         voice = Voice(this)
         restrictions = UxRestrictions(this, vehicle::setUxRestricted)
+        location = VehicleLocation(this)
+        if (store.data.locationConsent == true) location.start()
 
         vehicle.start()
         restrictions.start()
-        tracker = TripTracker(scope, vehicle, speed, store, voice).also { it.start() }
+        tracker = TripTracker(scope, vehicle, speed, store, voice, place = ::currentDong).also { it.start() }
+        if (BuildConfig.DEBUG) DevCommands.register(this, store)
     }
 }

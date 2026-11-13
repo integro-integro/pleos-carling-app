@@ -39,8 +39,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -102,11 +100,16 @@ fun minutesText(sec: Long?): String = when {
 
 /** 목적별 칩 색(배경, 글자). 목적이 없으면 라벤더. */
 private fun purposeColors(p: TripPurpose?): Pair<Color, Color> = when (p) {
-    TripPurpose.COMMUTE -> Color(0xFFECEBFF) to Color(0xFF5B4FD6)
-    TripPurpose.FIELD -> Color(0xFFE3F0FF) to Color(0xFF2F6FC4)
-    TripPurpose.FAMILY -> Color(0xFFFFEEDE) to Color(0xFFC46A1F)
+    TripPurpose.TO_WORK, TripPurpose.COMMUTE -> Color(0xFFECEBFF) to Color(0xFF5B4FD6)
+    TripPurpose.FROM_WORK -> Color(0xFFE8E4FF) to Color(0xFF4A3FB0)
+    TripPurpose.WORK -> Color(0xFFE3F0FF) to Color(0xFF2F6FC4)
+    TripPurpose.MEAL -> Color(0xFFFFF0DE) to Color(0xFFC4741F)
+    TripPurpose.SHOPPING -> Color(0xFFE4F7E6) to Color(0xFF2E8A45)
     TripPurpose.TRAVEL -> Color(0xFFDDF3FF) to Color(0xFF1F7FB3)
+    TripPurpose.DATE -> Color(0xFFFFE4EC) to Color(0xFFC23D6B)
+    TripPurpose.EXERCISE -> Color(0xFFDFF8F4) to Color(0xFF13897A)
     TripPurpose.HOBBY -> Color(0xFFFFE6F1) to Color(0xFFC2477D)
+    TripPurpose.FAMILY -> Color(0xFFFFEEDE) to Color(0xFFC46A1F)
     TripPurpose.OTHER -> Color(0xFFDFF8EE) to Color(0xFF1F9C74)
     null -> LilacSoft to Muted
 }
@@ -191,9 +194,14 @@ fun TicketCard(trip: TripRecord, card: TripCard, reward: Reward?, modifier: Modi
                     ) {
                         Text(card.purpose?.icon ?: "🎫", fontSize = 20.sp)
                         Spacer(Modifier.width(8.dp))
-                        Text(card.purpose?.label ?: (if (faded) "목적 없음" else "어떤 여정?"), fontSize = 22.sp, color = ink, fontWeight = FontWeight.Bold)
+                        Text(card.purposeLabel ?: (if (faded) "목적 없음" else "어떤 여정?"), fontSize = 22.sp, color = ink, fontWeight = FontWeight.Bold)
                     }
                     Spacer(Modifier.weight(1f))
+                    card.companion?.let {
+                        Spacer(Modifier.width(8.dp))
+                        Text("${it.icon} ${it.label}", fontSize = 17.sp, color = Ink, modifier = Modifier.background(Paper, RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 5.dp))
+                    }
+                    Spacer(Modifier.width(8.dp))
                     if (card.tags.isNotEmpty()) Text(card.tags.joinToString(" ") { "#$it" }, fontSize = 16.sp, color = Muted, maxLines = 1)
                 }
                 Spacer(Modifier.height(10.dp))
@@ -336,13 +344,23 @@ fun TripCardSheet(
     suggested: TripPurpose?,
     customTags: List<String>,
     otherDrafts: Int,
-    onComplete: (TripPurpose, List<String>) -> Unit,
+    onComplete: (TripPurpose, List<String>, work.integro.carling.game.Companion?, String?) -> Unit,
+    customPurposes: List<String> = emptyList(),
     onCompleteAll: () -> Unit,
     onLater: () -> Unit,
 ) {
     var purpose by remember(card.tripId) { mutableStateOf(card.purpose ?: suggested) }
     var tags by remember(card.tripId) { mutableStateOf(card.tags) }
+    var companion by remember(card.tripId) { mutableStateOf(card.companion) }
     var typing by remember(card.tripId) { mutableStateOf(false) }
+    var custom by remember(card.tripId) { mutableStateOf(card.customPurpose) }
+    var typingPurpose by remember(card.tripId) { mutableStateOf(false) }
+    var purposeText by remember(card.tripId) { mutableStateOf("") }
+    fun addPurpose() {
+        TripCardRules.cleanTag(purposeText)?.let { custom = it }
+        purposeText = ""
+        typingPurpose = false
+    }
     var text by remember(card.tripId) { mutableStateOf("") }
     fun addTyped() {
         TripCardRules.cleanTag(text)?.let { if (it !in tags) tags = tags + it }
@@ -353,7 +371,7 @@ fun TripCardSheet(
         Panel(Modifier.widthIn(max = 1240.dp), padding = 28.dp) {
             Row {
                 RevealCard(enabled = mode == SheetMode.ARRIVAL, key = card.tripId, tier = tierOf(trip, card)) { glint ->
-                    TicketCard(trip, card.copy(purpose = purpose, tags = tags), reward, width = 430.dp, glint = glint)
+                    TicketCard(trip, card.copy(purpose = purpose, tags = tags, companion = companion, customPurpose = custom.takeIf { purpose == TripPurpose.OTHER }), reward, width = 430.dp, glint = glint)
                 }
                 Spacer(Modifier.width(30.dp))
                 Column(Modifier.weight(1f)) {
@@ -366,7 +384,7 @@ fun TripCardSheet(
                             }
                             SheetMode.REMINDER -> "아직 완성하지 않은 여정이 있어요"
                             SheetMode.OPEN -> "이 여정을 완성할까요?"
-                            SheetMode.EDIT -> "운행 목적 고치기"
+                            SheetMode.EDIT -> "카드 고치기"
                         },
                         fontSize = 30.sp,
                         color = Ink,
@@ -375,7 +393,7 @@ fun TripCardSheet(
                     Text(
                         when (mode) {
                             SheetMode.REMINDER -> "지금부터 24시간 안에 완성할 수 있어요. 지나면 운행 기록만 남아요."
-                            SheetMode.EDIT -> "목적을 바꾸면 카링의 개성도 다시 계산돼요."
+                            SheetMode.EDIT -> "목적·누구랑·태그를 고칠 수 있어요. 목적을 바꾸면 카링의 개성도 다시 계산돼요."
                             SheetMode.ARRIVAL -> "어떤 여정이었나요? 목적 하나를 고르면 풍경이 담기고 카드가 완성돼요."
                             else -> "목적 하나를 고르면 완성돼요. 운행이 확정되면 성장 포인트와 럭키박스가 와요."
                         },
@@ -383,17 +401,54 @@ fun TripCardSheet(
                         color = Muted,
                     )
                     Spacer(Modifier.height(18.dp))
-                    Column(Modifier.height(330.dp).verticalScroll(rememberScrollState())) {
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), maxItemsInEachRow = 3) {
-                            TripPurpose.entries.forEach { p ->
+                    Column(Modifier.height(340.dp).verticalScroll(rememberScrollState())) {
+                        Text("목적 (필수)", fontSize = 19.sp, color = Muted, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp), maxItemsInEachRow = 5) {
+                            TripPurpose.choices.forEach { p ->
                                 PurposeChip(p, on = p == purpose) { purpose = p }
+                            }
+                        }
+                        // '기타'를 고르면 목적을 직접 적을 수 있다(예: 병원). 한 번 적은 목적은 다음에 칩으로 나온다
+                        if (purpose == TripPurpose.OTHER) {
+                            Spacer(Modifier.height(10.dp))
+                            Text("기타 목적 직접 적기 (선택)", fontSize = 17.sp, color = Muted)
+                            Spacer(Modifier.height(6.dp))
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                (customPurposes.asReversed() + listOfNotNull(custom)).distinct().forEach { c ->
+                                    Pill("✨ $c", on = c == custom, fontSize = 18, onColor = Lilac) { custom = if (c == custom) null else c }
+                                }
+                                if (!typingPurpose) Pill("＋ 목적 적기", on = false, fontSize = 18) { typingPurpose = true }
+                            }
+                            if (typingPurpose) {
+                                Spacer(Modifier.height(10.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    OutlinedTextField(
+                                        value = purposeText,
+                                        onValueChange = { purposeText = it.take(12) },
+                                        singleLine = true,
+                                        textStyle = TextStyle(fontSize = 22.sp, color = Ink),
+                                        placeholder = { Text("예: 병원, 아이 픽업", fontSize = 19.sp) },
+                                        modifier = Modifier.background(Color.White).width(320.dp),
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Button(onClick = ::addPurpose, enabled = purposeText.isNotBlank(), modifier = Modifier.height(58.dp)) { Text("적용", fontSize = 20.sp) }
+                                }
                             }
                         }
                         if (suggested != null && purpose == suggested && card.purpose == null) {
                             Text("✨ 비슷한 시간에 자주 고른 목적이에요", fontSize = 17.sp, color = Lilac, modifier = Modifier.padding(top = 8.dp))
                         }
-                        if (mode != SheetMode.EDIT) {
-                            Spacer(Modifier.height(18.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Text("누구랑 (선택)", fontSize = 19.sp, color = Muted, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            work.integro.carling.game.Companion.entries.forEach { c ->
+                                Pill("${c.icon} ${c.label}", on = c == companion, fontSize = 19, onColor = Mint) { companion = if (c == companion) null else c }
+                            }
+                        }
+                        run {
+                            Spacer(Modifier.height(16.dp))
                             Text("태그 (선택)", fontSize = 19.sp, color = Muted, fontWeight = FontWeight.Bold)
                             Spacer(Modifier.height(8.dp))
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -428,7 +483,8 @@ fun TripCardSheet(
                         Button(
                             onClick = {
                                 if (typing) addTyped()
-                                purpose?.let { onComplete(it, tags) }
+                                if (typingPurpose) addPurpose()
+                                purpose?.let { onComplete(it, tags, companion, custom.takeIf { _ -> it == TripPurpose.OTHER }) }
                             },
                             enabled = purpose != null,
                             colors = ButtonDefaults.buttonColors(containerColor = Lilac, disabledContainerColor = LilacSoft, disabledContentColor = Faint),
@@ -445,75 +501,212 @@ fun TripCardSheet(
 private fun PurposeChip(p: TripPurpose, on: Boolean, onClick: () -> Unit) {
     Column(
         Modifier
-            .width(196.dp)
-            .background(if (on) Lilac else Color.White, RoundedCornerShape(22.dp))
-            .border(2.dp, if (on) Lilac else Line, RoundedCornerShape(22.dp))
+            .width(116.dp)
+            .background(if (on) Lilac else Color.White, RoundedCornerShape(20.dp))
+            .border(2.dp, if (on) Lilac else Line, RoundedCornerShape(20.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 14.dp),
+            .padding(vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(p.icon, fontSize = 30.sp)
-        Text(p.label, fontSize = 21.sp, color = if (on) Color.White else Ink, fontWeight = FontWeight.Bold)
+        Text(p.icon, fontSize = 26.sp)
+        Text(p.label, fontSize = 19.sp, color = if (on) Color.White else Ink, fontWeight = FontWeight.Bold)
     }
 }
 
 /** 카드 목록 필터. */
 private enum class CardFilter(val label: String) { ALL("전체"), DRAFT("임시"), COMPLETED("완성"), EXPIRED("만료") }
 
+/** 앨범 안 묶음: 주 보기는 날짜별, 월은 주별, 분기·년은 월별. */
+private fun groupKey(unit: work.integro.carling.game.PeriodUnit, d: LocalDate): LocalDate = when (unit) {
+    work.integro.carling.game.PeriodUnit.WEEK -> d
+    work.integro.carling.game.PeriodUnit.MONTH -> d.minusDays(d.dayOfWeek.value - 1L)
+    else -> d.withDayOfMonth(1)
+}
+
+private fun groupTitle(unit: work.integro.carling.game.PeriodUnit, d: LocalDate): String = when (unit) {
+    work.integro.carling.game.PeriodUnit.WEEK -> "${d.monthValue}월 ${d.dayOfMonth}일 ${listOf("월", "화", "수", "목", "금", "토", "일")[d.dayOfWeek.value - 1]}요일"
+    work.integro.carling.game.PeriodUnit.MONTH -> "${d.monthValue}/${d.dayOfMonth} 주"
+    else -> "${d.year}년 ${d.monthValue}월"
+}
+
 /**
- * 트립카드 탭: 최신 카드부터. 상태(임시·완성·만료) 필터, 임시 카드 모두 완성.
- * 카드를 누르면 임시는 완성 시트, 완성은 목적 고치기.
+ * 트립카드 탭(시안 A 앨범 그리드, 11/12 사용자 확정): 주·월·분기·년 기간과 ‹ › 이동, 상태 필터.
+ * 기간 안 카드를 묶음별로 5장씩 격자로 보여 준다. 카드를 누르면 임시는 완성 시트, 완성은 고치기 시트.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TripCardsTab(data: CarlingData, today: LocalDate, onOpen: (TripCard) -> Unit, onCompleteAll: () -> Unit, modifier: Modifier = Modifier) {
     var filter by remember { mutableStateOf(CardFilter.ALL) }
-    val cards = remember(data.cards, data.trips, filter) {
-        data.cards.sortedByDescending { data.trip(it.tripId)?.startedAt ?: it.tripId }.filter {
-            when (filter) {
-                CardFilter.ALL -> true
-                CardFilter.DRAFT -> it.state == CardState.DRAFT
-                CardFilter.COMPLETED -> it.state == CardState.COMPLETED
-                CardFilter.EXPIRED -> it.state == CardState.EXPIRED
-            }
+    var period by rememberPeriod(work.integro.carling.game.PeriodUnit.MONTH)
+    var purposeFilter by remember { mutableStateOf<TripPurpose?>(null) }
+    var detail by remember { mutableStateOf<Long?>(null) }
+    // 동네 이름은 경계 데이터에서(동네 기록이 있을 때만 백그라운드에서 읽는다)
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val hasDong = remember(data.trips) { data.trips.any { it.startDong != null || it.endDong != null } }
+    val atlas by androidx.compose.runtime.produceState<work.integro.carling.geo.KoreaAtlas?>(null, hasDong) {
+        if (hasDong) value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { work.integro.carling.geo.KoreaAtlas.load(ctx) }.getOrNull() }
+    }
+    fun dongName(code: String): String? = atlas?.region(code)?.name
+    fun sumOf(c: TripCard): work.integro.carling.game.SumTrip? = data.trip(c.tripId)?.let { t ->
+        work.integro.carling.game.SumTrip(t.startedAt, t.distanceKm, t.movingSec, c.purpose.takeIf { c.state == CardState.COMPLETED }, c.customPurpose, c.companion, t.startDong, t.endDong, tierOf(t, c))
+    }
+    val (from, to) = period.range(today)
+    fun day(c: TripCard): LocalDate = Instant.ofEpochMilli(data.trip(c.tripId)?.startedAt ?: c.tripId).atZone(Zone).toLocalDate()
+    val inPeriod = remember(data.cards, data.trips, period, today) { data.cards.filter { day(it) in from..to } }
+    val reach = remember(data.trips, period, today, atlas) { reachOf(data, period, today, atlas) }
+    val summary = remember(inPeriod, atlas, reach) {
+        work.integro.carling.game.TripSummaryRules.build(inPeriod.mapNotNull(::sumOf), Zone, reach.home?.code, ::dongName, reach.radiusKm, reach.newPlaces.size)
+    }
+    val cards = inPeriod.sortedByDescending { data.trip(it.tripId)?.startedAt ?: it.tripId }.filter { purposeFilter == null || it.purpose == purposeFilter }.filter {
+        when (filter) {
+            CardFilter.ALL -> true
+            CardFilter.DRAFT -> it.state == CardState.DRAFT
+            CardFilter.COMPLETED -> it.state == CardState.COMPLETED
+            CardFilter.EXPIRED -> it.state == CardState.EXPIRED
         }
     }
-    val weekFrom = today.minusDays(6)
-    val week = data.trips.filter { it.status == TripStatus.CONFIRMED && Instant.ofEpochMilli(it.startedAt).atZone(Zone).toLocalDate() >= weekFrom }
+    val groups = cards.groupBy { groupKey(period.unit, day(it)) }.toList()
+    val km = inPeriod.sumOf { (data.trip(it.tripId)?.distanceKm ?: 0f).toDouble() }
     Column(modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp)) {
         // 오른쪽 위 음성·도움말 버튼과 겹치지 않게 비워 둔다
         Row(Modifier.padding(end = 280.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("트립카드", fontSize = 34.sp, color = Ink, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(20.dp))
-            Text("최근 7일 ${week.size}회 · ${ReportAggregator.km(week.sumOf { (it.distanceKm ?: 0f).toDouble() })} · 완성 ${data.cards.count { it.state == CardState.COMPLETED }}장", fontSize = 20.sp, color = Muted)
+            Text("트립카드", fontSize = 28.sp, color = Ink, fontWeight = FontWeight.Bold, modifier = Modifier.background(Color.White.copy(alpha = 0.92f), RoundedCornerShape(50)).padding(horizontal = 20.dp, vertical = 6.dp))
+            Spacer(Modifier.width(18.dp))
+            PeriodBar(period, today, { period = it })
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("${inPeriod.size}장 · ${ReportAggregator.km(km)} · 완성 ${inPeriod.count { it.state == CardState.COMPLETED }}장", fontSize = 20.sp, color = Ink, fontWeight = FontWeight.Bold,
+                modifier = Modifier.background(Color.White.copy(alpha = 0.85f), RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 6.dp))
             Spacer(Modifier.weight(1f))
             CardFilter.entries.forEach { f ->
                 val n = when (f) {
-                    CardFilter.ALL -> data.cards.size
-                    CardFilter.DRAFT -> data.cards.count { it.state == CardState.DRAFT }
-                    CardFilter.COMPLETED -> data.cards.count { it.state == CardState.COMPLETED }
-                    CardFilter.EXPIRED -> data.cards.count { it.state == CardState.EXPIRED }
+                    CardFilter.ALL -> inPeriod.size
+                    CardFilter.DRAFT -> inPeriod.count { it.state == CardState.DRAFT }
+                    CardFilter.COMPLETED -> inPeriod.count { it.state == CardState.COMPLETED }
+                    CardFilter.EXPIRED -> inPeriod.count { it.state == CardState.EXPIRED }
                 }
-                Pill("${f.label} $n", on = f == filter, modifier = Modifier.padding(start = 10.dp), fontSize = 19) { filter = f }
+                Pill("${f.label} $n", on = f == filter, modifier = Modifier.padding(start = 10.dp), fontSize = 18) { filter = f }
             }
+            purposeFilter?.let { p -> Pill("${p.icon} ${p.label}만 ✕", on = true, modifier = Modifier.padding(start = 10.dp), fontSize = 18) { purposeFilter = null } }
+            val drafts = data.draftCards.size
+            if (drafts > 0) Pill("임시 모두 완성 ${drafts}장", on = false, modifier = Modifier.padding(start = 16.dp), fontSize = 18, onColor = Honey) { onCompleteAll() }
         }
-        Spacer(Modifier.height(20.dp))
-        if (cards.isEmpty()) {
+        Spacer(Modifier.height(14.dp))
+        if (cards.isEmpty() && inPeriod.isEmpty()) {
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                Speech(if (data.cards.isEmpty()) "아직 카드가 없어요. 1km 이상, 3분 넘게 함께 달리고 주차하면 카드가 생겨요." else "이 상태의 카드가 없어요.")
+                Speech(
+                    when {
+                        data.cards.isEmpty() -> "아직 카드가 없어요. 1km 이상, 3분 넘게 함께 달리고 주차하면 카드가 생겨요."
+                        inPeriod.isEmpty() -> "${period.label(today)}에는 카드가 없어요. ‹ 로 앞 기간을 볼 수 있어요."
+                        else -> "이 상태의 카드가 없어요."
+                    },
+                )
             }
         } else {
-            LazyRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(22.dp), verticalAlignment = Alignment.CenterVertically) {
-                items(cards, key = { it.tripId }) { card ->
-                    val trip = data.trip(card.tripId) ?: return@items
-                    TicketCard(trip, card, data.rewards[card.tripId], width = 400.dp, onClick = if (card.state != CardState.EXPIRED) ({ onOpen(card) }) else null)
+            androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                item(key = "summary") {
+                    TripSummaryPanel(summary, reach, period.previousLabel, data.locationConsent == true) { p ->
+                        if (p == null) { filter = CardFilter.DRAFT; purposeFilter = null } else { purposeFilter = p; filter = CardFilter.ALL }
+                    }
+                }
+                if (cards.isEmpty()) item(key = "none") { Text("이 조건의 카드가 없어요.", fontSize = 19.sp, color = Ink, modifier = Modifier.background(Color.White.copy(alpha = 0.85f), RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp)) }
+                groups.forEach { (key, list) ->
+                    item(key = "h$key") {
+                        val gkm = list.sumOf { (data.trip(it.tripId)?.distanceKm ?: 0f).toDouble() }
+                        Text(
+                            "${groupTitle(period.unit, key)} · ${list.size}장 · ${ReportAggregator.km(gkm)}",
+                            fontSize = 19.sp, color = Ink, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 6.dp).background(Color.White.copy(alpha = 0.8f), RoundedCornerShape(50)).padding(horizontal = 14.dp, vertical = 5.dp),
+                        )
+                    }
+                    list.chunked(5).forEachIndexed { i, row ->
+                        item(key = "r$key-$i") {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                row.forEach { card ->
+                                    val trip = data.trip(card.tripId)
+                                    if (trip != null) MiniTicket(trip, card, data.rewards[card.tripId], Modifier.weight(1f), onClick = { if (card.state == CardState.DRAFT) onOpen(card) else detail = card.tripId })
+                                    else Spacer(Modifier.weight(1f))
+                                }
+                                repeat(5 - row.size) { Spacer(Modifier.weight(1f)) }
+                            }
+                        }
+                    }
                 }
             }
         }
-        val drafts = data.draftCards.size
-        if (drafts > 0) {
-            Spacer(Modifier.height(12.dp))
-            OutlinedButton(onClick = onCompleteAll, modifier = Modifier.height(60.dp)) { Text("임시 카드 모두 완성 (${drafts}장 · 추천 목적, 없으면 기타)", fontSize = 20.sp) }
+    }
+    // 상세보기(시안 B): 임시 카드는 바로 완성 시트, 나머지는 상세 → '고치기'로 고치기 시트
+    detail?.let { id ->
+        val card = data.card(id)
+        val trip = data.trip(id)
+        if (card == null || trip == null) { detail = null; return@let }
+        val all = data.cards.filter { it.state == CardState.COMPLETED }.mapNotNull(::sumOf)
+        val nth = if (trip.startDong != null && trip.endDong != null) {
+            data.trips.count { it.startDong == trip.startDong && it.endDong == trip.endDong && it.startedAt <= trip.startedAt } to "같은 출발·도착 동네"
+        } else card.purpose?.let { p -> data.cards.count { c -> c.purpose == p && (data.trip(c.tripId)?.startedAt ?: 0) <= trip.startedAt } to "같은 목적 카드 중" }
+        TripDetailSheet(
+            trip, card, data.rewards[id],
+            TripDetail(
+                trip.startDong?.let(::dongName), trip.endDong?.let(::dongName), work.integro.carling.game.TripSummaryRules.sameAverage(all, card.purpose), nth,
+                benefit = if (data.benefitConsent == true) work.integro.carling.game.BenefitRules.forDong(trip.endDong)?.let { benefitLine(it.kind, it.title, it.partner) } else null,
+            ),
+            onEdit = { detail = null; onOpen(card) },
+            onSamePurpose = card.purpose?.let { p -> { purposeFilter = p; filter = CardFilter.ALL; detail = null } },
+            onClose = { detail = null },
+        )
+    }
+}
+
+/** 앨범용 작은 카드: 풍경, 목적, 날짜·거리·시간, 상태. 완성 카드엔 ✏️. */
+@Composable
+private fun MiniTicket(trip: TripRecord, card: TripCard, reward: Reward?, modifier: Modifier, onClick: (() -> Unit)?) {
+    val bucket = TimeBucket.of(hourOf(trip.startedAt))
+    val faded = card.state == CardState.EXPIRED
+    val tier = tierOf(trip, card)
+    val (tint, ink) = purposeColors(card.purpose)
+    val rim = when {
+        faded -> Line
+        tier == CardTier.SPECIAL -> Color(0xFFF2C14E)
+        tier == CardTier.SHINE -> Mint
+        else -> Line
+    }
+    Column(
+        modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (faded) Color(0xFFF1F0F7) else Color.White)
+            .border(if (tier != CardTier.BASIC && !faded) 3.dp else 1.dp, rim, RoundedCornerShape(20.dp))
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(8.dp),
+    ) {
+        Box(Modifier.fillMaxWidth().aspectRatio(1.7f).clip(RoundedCornerShape(14.dp))) {
+            Canvas(Modifier.fillMaxSize().graphicsLayer { alpha = if (faded) 0.45f else 1f }) { drawTripScene(card.purpose, bucket, (trip.tripId % 100_000).toInt()) }
+            Text("#%03d".format(card.number), fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopStart).padding(8.dp))
+            Box(Modifier.align(Alignment.TopEnd).padding(6.dp).graphicsLayer { scaleX = 0.82f; scaleY = 0.82f }) { StateChip(card.state, trip.status) }
+            if (card.state == CardState.COMPLETED) Text("✏️", fontSize = 16.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(50)).padding(horizontal = 6.dp, vertical = 2.dp))
         }
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "${card.purpose?.icon ?: "🎫"} ${card.purposeLabel ?: if (faded) "목적 없음" else "어떤 여정?"}",
+                fontSize = 18.sp, color = ink, fontWeight = FontWeight.Bold, maxLines = 1,
+                modifier = Modifier.background(tint, RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 3.dp),
+            )
+            Spacer(Modifier.weight(1f))
+            card.companion?.let { Text(it.icon, fontSize = 18.sp) }
+        }
+        Text("${dateOf(trip.startedAt)} ${timeOf(trip.startedAt)}", fontSize = 15.sp, color = Muted, maxLines = 1, modifier = Modifier.padding(top = 6.dp))
+        Text("${kmText(trip.distanceKm)}km · ${minutesText(trip.movingSec)}" + (trip.score?.let { " · ♥$it" } ?: ""), fontSize = 16.sp, color = Ink, fontWeight = FontWeight.Medium, maxLines = 1)
+        Text(
+            when {
+                reward != null -> "+${reward.gp}점" + if (reward.boxId != null) " 🎁" else ""
+                card.state == CardState.DRAFT -> "눌러서 완성"
+                faded -> "만료"
+                else -> "확정 대기"
+            },
+            fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+            color = when { reward != null -> Color(0xFF1F9C74); card.state == CardState.DRAFT -> Honey; else -> Muted },
+        )
     }
 }
 
@@ -572,13 +765,13 @@ private class Particle(var x: Float, var y: Float, var vx: Float, var vy: Float,
 
 /** 카드 가운데서 퍼지는 반짝이. [key]가 바뀔 때마다 한 번. */
 @Composable
-private fun SparkleBurst(key: Long, colors: List<Color>, modifier: Modifier) {
+internal fun SparkleBurst(key: Long, colors: List<Color>, modifier: Modifier, originX: Float = 0.5f, originY: Float = 0.5f, count: Int = 70) {
     if (key == 0L) return
     var particles by remember(key) { mutableStateOf<List<Particle>>(emptyList()) }
     var frame by remember(key) { mutableStateOf(0) }
     LaunchedEffect(key) {
         val r = kotlin.random.Random(key)
-        particles = List(70) {
+        particles = List(count) {
             val a = r.nextFloat() * 6.283f
             val v = 4f + r.nextFloat() * 10f
             Particle(0f, 0f, kotlin.math.cos(a) * v, kotlin.math.sin(a) * v - 4f, 4f + r.nextFloat() * 6f, colors[r.nextInt(colors.size)])
@@ -593,7 +786,7 @@ private fun SparkleBurst(key: Long, colors: List<Color>, modifier: Modifier) {
     Canvas(modifier) {
         @Suppress("UNUSED_EXPRESSION") frame
         particles.forEach { p ->
-            if (p.life > 0f) sparkle(center.x + p.x * density, center.y + p.y * density, p.s * density / 2, p.c.copy(alpha = p.life.coerceIn(0f, 1f)))
+            if (p.life > 0f) sparkle(size.width * originX + p.x * density, size.height * originY + p.y * density, p.s * density / 2, p.c.copy(alpha = p.life.coerceIn(0f, 1f)))
         }
     }
 }

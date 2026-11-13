@@ -99,7 +99,127 @@ class VehicleSignals(context: Context) {
         }
     }
 
+    /** 지금 에너지 상태: EV 배터리(Wh·%), 연료(%). 받지 못한 값은 null. */
+    suspend fun energy(): EnergyReading? {
+        if (!started) return null
+        val wh = read { ok, fail -> vehicle.getEvBattery().getEvBatteryLevel(ok, fail) }
+        val soc = read<Int> { ok, fail -> vehicle.getEvBattery().getEvBatteryStateOfCharge(ok, fail) }
+        val fuel = read<Int> { ok, fail -> vehicle.getFuel().getFuelPercent(ok, fail) }
+        if (wh == null && soc == null && fuel == null) return null
+        return EnergyReading(wh, soc, fuel)
+    }
+
+    /** 차량이 계산한 이번 주행 효율: EV면 전비, 아니면 연비. 지원하지 않으면 null. */
+    suspend fun efficiency(ev: Boolean): Float? {
+        if (!started) return null
+        return if (ev) read { ok, fail -> vehicle.getEvBattery().getCurrentEvEfficiency(ok, fail) }
+        else read { ok, fail -> vehicle.getFuel().getCurrentFuelEconomy(ok, fail) }
+    }
+
+    /**
+     * 지금 차량 상태(리포트 ⑨). 주차 중 리포트를 열 때 한 번 읽는다. 지원하지 않는 값은 null.
+     * 타이어 공기압(psi, 4바퀴), 엔진오일·브레이크액, 워셔액 부족, 남은 주행 가능 거리, 켜진 경고등.
+     */
+    suspend fun health(): VehicleHealth? {
+        if (!started) return null
+        val tire = vehicle.getTire()
+        val wheels = listOf(
+            ai.pleos.playground.vehicle.constant.area.WheelValue.LEFT_FRONT to "앞 왼쪽",
+            ai.pleos.playground.vehicle.constant.area.WheelValue.RIGHT_FRONT to "앞 오른쪽",
+            ai.pleos.playground.vehicle.constant.area.WheelValue.LEFT_REAR to "뒤 왼쪽",
+            ai.pleos.playground.vehicle.constant.area.WheelValue.RIGHT_REAR to "뒤 오른쪽",
+        )
+        val pressures = wheels.map { (w, label) ->
+            val area = ai.pleos.playground.vehicle.api.model.area.WheelArea(w)
+            TireReading(label, read { ok, fail -> tire.getTirePressure(area, ok, fail) }, read { ok, fail -> tire.getLowTirePressure(area, ok, fail) })
+        }
+        val safety = vehicle.getSafety()
+        val oil = read<ai.pleos.playground.vehicle.constant.control.OilLevelState> { ok, fail -> safety.getEngineOilLevelState(ok, fail) }
+        val brake = read<ai.pleos.playground.vehicle.constant.control.OilLevelState> { ok, fail -> safety.getBrakeFluidLevelState(ok, fail) }
+        val washer = read<Boolean> { ok, fail -> safety.hasLowWasherFluidWarning(ok, fail) }
+        val range = read<Float> { ok, fail -> vehicle.getOdometer().getRangeRemainingDistance(ok, fail) }
+        val tells = read<ai.pleos.playground.vehicle.api.model.telltale.Telltales> { ok, fail -> safety.getTelltalesInfo(ok, fail) }
+        val warnings = tells?.telltales.orEmpty()
+            .filter { it.state != ai.pleos.playground.vehicle.constant.telltale.TelltaleState.OFF && it.type.name in WARNING_TELLTALES }
+            .map { WARNING_TELLTALES.getValue(it.type.name) }
+            .distinct()
+        val energy = energy()
+        return VehicleHealth(
+            tires = pressures,
+            engineOil = oil?.name,
+            brakeFluid = brake?.name,
+            lowWasher = washer,
+            rangeKm = range?.takeIf { it > 0f },
+            warnings = warnings,
+            telltalesKnown = tells != null,
+            energyPercent = energy?.percent,
+            ev = energy?.isEv,
+            odometerKm = odometerKm()?.takeIf { it > 0f },
+        )
+    }
+
+    private suspend fun <T> read(call: (ok: (T?) -> Unit, fail: (Exception) -> Unit) -> Unit): T? =
+        withTimeoutOrNull(1_500) {
+            suspendCancellableCoroutine { cont ->
+                runCatching {
+                    call({ v -> if (cont.isActive) cont.resume(v) }, { e -> logFailure("energy", e); if (cont.isActive) cont.resume(null) })
+                }.onFailure { if (cont.isActive) cont.resume(null) }
+            }
+        }
+
     private fun logFailure(what: String, e: Throwable) {
         Log.w(TAG, "$what failed: ${e.message}", e)
     }
 }
+
+/** 에너지 상태 한 번. [batteryWh]·[socPercent]는 전기차, [fuelPercent]는 내연기관차. */
+data class EnergyReading(val batteryWh: Float?, val socPercent: Int?, val fuelPercent: Int?) {
+    val isEv: Boolean get() = batteryWh != null || socPercent != null
+    /** 비교에 쓰는 남은 양(%). */
+    val percent: Int? get() = socPercent ?: fuelPercent
+}
+
+/** 타이어 한 바퀴: 지금 공기압과 '부족' 기준(psi). */
+data class TireReading(val label: String, val psi: Float?, val lowPsi: Float?) {
+    val low: Boolean? get() = if (psi == null || lowPsi == null || lowPsi <= 0f) null else psi < lowPsi
+}
+
+/** 차량 상태 한 번 읽은 값. 문자열 상태는 OilLevelState 이름(NORMAL·LOW …). */
+data class VehicleHealth(
+    val tires: List<TireReading>,
+    val engineOil: String?,
+    val brakeFluid: String?,
+    val lowWasher: Boolean?,
+    val rangeKm: Float?,
+    /** 켜진 주의 경고등 이름(한글). */
+    val warnings: List<String>,
+    val telltalesKnown: Boolean,
+    val energyPercent: Int?,
+    val ev: Boolean?,
+    val odometerKm: Float?,
+) {
+    /** 주의가 필요한 항목 수. */
+    val issues: Int
+        get() = tires.count { it.low == true } +
+            listOf(engineOil, brakeFluid).count { it == "LOW" || it == "CRITICALLY_LOW" } +
+            (if (lowWasher == true) 1 else 0) + warnings.size
+}
+
+/** 리포트에 보여 줄 주의 경고등(정보성 표시등은 뺀다). */
+private val WARNING_TELLTALES = mapOf(
+    "MASTER_WARNING" to "종합 경고",
+    "TPMS" to "타이어 공기압",
+    "ENGINE" to "엔진 점검",
+    "ENGINE_OIL_PRESSURE" to "엔진오일 압력",
+    "ENGINE_TEMPERATURE" to "냉각수 온도",
+    "ABS" to "ABS",
+    "ESC" to "차체 자세 제어",
+    "AIRBAG" to "에어백",
+    "MDPS" to "조향 보조",
+    "LOW_VOLT_BATTERY" to "보조 배터리",
+    "EV_SYSTEM" to "전기차 시스템",
+    "LOW_EV_BATTERY" to "구동 배터리 부족",
+    "POWER_DOWN" to "출력 제한",
+    "RBS" to "회생 제동",
+    "DOOR_OPEN" to "문 열림",
+)

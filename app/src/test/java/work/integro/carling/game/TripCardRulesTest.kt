@@ -45,9 +45,9 @@ class TripCardRulesTest {
 
     @Test
     fun suggestsPurposeFromSimilarTimes() {
-        val history = listOf(Triple(8, false, TripPurpose.COMMUTE), Triple(9, false, TripPurpose.COMMUTE), Triple(8, true, TripPurpose.FAMILY), Triple(8, true, TripPurpose.FAMILY))
-        assertEquals(TripPurpose.COMMUTE, TripCardRules.suggestPurpose(8, false, history))
-        assertEquals(TripPurpose.FAMILY, TripCardRules.suggestPurpose(7, true, history))
+        val history = listOf(Triple(8, false, TripPurpose.TO_WORK), Triple(9, false, TripPurpose.TO_WORK), Triple(8, true, TripPurpose.DATE), Triple(8, true, TripPurpose.DATE))
+        assertEquals(TripPurpose.TO_WORK, TripCardRules.suggestPurpose(8, false, history))
+        assertEquals(TripPurpose.DATE, TripCardRules.suggestPurpose(7, true, history))
         assertNull(TripCardRules.suggestPurpose(15, false, history))
         assertEquals(TripPurpose.HOBBY, TripCardRules.suggestPurpose(0, false, listOf(Triple(23, false, TripPurpose.HOBBY), Triple(0, false, TripPurpose.HOBBY))))
     }

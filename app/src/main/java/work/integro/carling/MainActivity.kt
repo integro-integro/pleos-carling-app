@@ -9,12 +9,31 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import work.integro.carling.trip.TripService
 import work.integro.carling.ui.CarlingApp
+import work.integro.carling.geo.FUSED_LOCATION_PERMISSION
 import work.integro.carling.vehicle.CAR_SPEED_PERMISSION
 
 class MainActivity : ComponentActivity() {
 
     private val requestSpeed = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) (application as CarlingApplication).speed.start()
+    }
+
+    // 위치는 리포트의 '위치 켜기'에서만 묻는다. 허용해야 동의가 켜진다.
+    private val requestLocation = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val app = application as CarlingApplication
+        if (granted) {
+            app.location.start()
+            app.store.setLocationConsent(true)
+        }
+    }
+
+    private fun onLocation(allowed: Boolean) {
+        val app = application as CarlingApplication
+        if (!allowed) app.store.setLocationConsent(false)
+        else if (checkSelfPermission(FUSED_LOCATION_PERMISSION) == PackageManager.PERMISSION_GRANTED) {
+            app.location.start()
+            app.store.setLocationConsent(true)
+        } else requestLocation.launch(FUSED_LOCATION_PERMISSION)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -29,7 +48,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val vehicle by app.vehicle.state.collectAsState()
             val live by app.tracker.live.collectAsState()
-            CarlingApp(app.store, vehicle, live)
+            androidx.compose.runtime.CompositionLocalProvider(work.integro.carling.ui.LocalVehicleHealth provides { app.vehicle.health() }) {
+                CarlingApp(app.store, vehicle, live, ::onLocation)
+            }
         }
     }
 }

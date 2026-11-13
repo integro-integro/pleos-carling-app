@@ -76,7 +76,10 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.pleos.vehicle)
+    implementation(libs.pleos.fusedlocation)
     implementation(libs.pleos.texttospeech)
+    // 운행일지 QR(폰으로 찍으면 메일 쓰기 화면이 열린다)
+    implementation(libs.zxing.core)
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)
 }

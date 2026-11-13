@@ -23,14 +23,14 @@ import work.integro.carling.voice.Voice
 private const val TAG = "TripTracker"
 
 /** D 화면에 보여줄 지금 운행의 거리·시간. */
-data class LiveTrip(val distanceKm: Float?, val minutes: Int)
+data class LiveTrip(val distanceKm: Float?, val minutes: Int, val talk: String? = null)
 
 /**
  * 기어로 운행 상태를 나눈다(PRD 4.2).
  * - P가 아닌 기어: 기록 중. 주차 5분 안이면 같은 운행에 계속 쌓는다(TripResumed), 아니면 새 운행(TripStarted).
  * - P: 주차됨(TripParked). 임시 카드가 바로 뜨고, 5분이 지나면 확정(TripConfirmed).
  * 시동 이벤트는 쓰지 않는다. 앱이 꺼진 동안의 5분은 다음 실행 때 [CarlingStore.settle]이 소급 판정한다.
- * 경로와 위치는 기록하지 않는다.
+ * 경로와 좌표는 기록하지 않는다. 위치 동의했을 때만 출발·도착 동네(행정동)를 남긴다.
  */
 class TripTracker(
     private val scope: CoroutineScope,
@@ -38,11 +38,19 @@ class TripTracker(
     private val speed: SpeedMonitor,
     private val store: CarlingStore,
     private val voice: Voice,
+    /** 지금 동네(행정동 코드). 위치 동의·권한이 없거나 모르면 null. */
+    private val place: suspend () -> String? = { null },
 ) {
     private var snapshotJob: Job? = null
     private var confirmJob: Job? = null
     /** 이 프로세스에서 직접 기록 중인 운행. 아니면 앱이 꺼졌다 뜬 것이다. */
     private var liveTripId: Long? = null
+
+    private var talkMemory = work.integro.carling.game.TalkMemory()
+    private var lastHarshCount: Int? = null
+    private var talkText: String? = null
+    private var talkUntil = 0L
+    private var energyPercent: Int? = null
 
     private val _live = MutableStateFlow<LiveTrip?>(null)
     val live: StateFlow<LiveTrip?> = _live.asStateFlow()
@@ -76,18 +84,29 @@ class TripTracker(
             else -> {
                 speed.beginTrip()
                 store.markIgnition(now)
-                store.startTrip(now, vehicle.odometerKm())
+                val id = store.startTrip(now, vehicle.odometerKm(), energy = vehicle.energy())
+                if (store.data.locationConsent == true) scope.launch { place()?.let { store.recordPlace(id, start = it) } }
                 say("출발! 오늘도 안전하게 함께 가요.")
+                talkText = null
+                // 시연: 그 사이 한마디가 저절로 나오지 않았으면 "천천히 가 줘"
+                if (BuildConfig.DEBUG && work.integro.carling.game.DemoDrive.armed) scope.launch {
+                    delay(work.integro.carling.game.DemoDrive.TALK_DELAY_MILLIS)
+                    val line = work.integro.carling.game.DemoDrive.talk
+                    if (line != null && store.data.current?.status == TripStatus.RECORDING && talkText == null) talk(line)
+                }
                 Log.i(TAG, "운행 시작")
             }
         }
+        if (liveTripId != store.data.current?.tripId) { talkMemory = work.integro.carling.game.TalkMemory(); lastHarshCount = speed.harshEvents }
         liveTripId = store.data.current?.tripId
         snapshotJob?.cancel()
         snapshotJob = scope.launch {
             var tick = 0L
             while (isActive) {
                 val (km, moving) = measure()
-                _live.value = LiveTrip(km, ((moving ?: 0L) / 60).toInt())
+                if (tick % 30 == 0L) energyPercent = vehicle.energy()?.percent
+                maybeTalk(km)
+                _live.value = LiveTrip(km, ((moving ?: 0L) / 60).toInt(), talkText.takeIf { System.currentTimeMillis() < talkUntil })
                 if (tick % (Rules.SNAPSHOT_MILLIS / LIVE_MILLIS) == 0L) store.snapshot(store.clock.now(), km, moving, speed.harshEvents)
                 tick++
                 delay(LIVE_MILLIS)
@@ -101,10 +120,21 @@ class TripTracker(
         val now = store.clock.now()
         store.settle(now, liveTripId)
         val current = store.data.current ?: return
+        if (current.status == TripStatus.RECORDING && BuildConfig.DEBUG && work.integro.carling.game.DemoDrive.armed) {
+            work.integro.carling.game.DevSimulator.demoPark(store)
+            speed.endTrip()
+            say("도착했어요! 오늘 여정을 카드로 남겨요.")
+            Log.i(TAG, "시연 주차")
+            liveTripId = null
+            return
+        }
         if (current.status == TripStatus.RECORDING) {
             val (km, moving) = measure()
             val before = store.data.cards.size
             store.park(now, km, moving, speed.harshEvents)
+            val energy = vehicle.energy()
+            store.recordEnergy(current.tripId, energy, vehicle.efficiency(energy?.isEv ?: true))
+            if (store.data.locationConsent == true) scope.launch { place()?.let { store.recordPlace(current.tripId, end = it) } }
             speed.endTrip()
             if (store.data.cards.size > before) say("도착했어요! 오늘 여정을 카드로 남겨요.")
             Log.i(TAG, "주차: ${km}km, 이동 ${moving}s")
@@ -118,9 +148,39 @@ class TripTracker(
         }
     }
 
+    /** 주행 한마디: 상황이 생기면 짧게 말하고 D 화면 말풍선에 몇 초 보여 준다. */
+    private fun maybeTalk(km: Float?) {
+        val trip = store.data.current ?: return
+        val now = store.clock.now()
+        val snap = work.integro.carling.game.DriveSnapshot(
+            now = now, startedAt = trip.startedAt, km = km, speedKmh = speed.speedKmh,
+            harsh = speed.harshEvents, lastHarshAt = speed.lastHarshAt?.let { now - (System.currentTimeMillis() - it) },
+            energyPercent = energyPercent, hour = store.clock.hourOf(now),
+        )
+        val gap = if (BuildConfig.DEBUG) 30_000L else work.integro.carling.game.DriveTalkRules.GAP_MILLIS
+        val t = work.integro.carling.game.DriveTalkRules.next(snap, store.data.shownStage, talkMemory, gap, lastHarshCount)
+        lastHarshCount = speed.harshEvents
+        if (t != null) talk(t)
+    }
+
+    /** 한마디를 말한다(개발 도구의 미리 듣기도 이것을 쓴다). */
+    fun talk(t: work.integro.carling.game.Talk) {
+        val text = work.integro.carling.game.DriveTalkRules.lineOf(t, talkMemory)
+        talkMemory = work.integro.carling.game.DriveTalkRules.remember(talkMemory, t, store.clock.now())
+        talkText = text
+        talkUntil = System.currentTimeMillis() + 8_000
+        store.logTalk(t)
+        say(text)
+        Log.i(TAG, "주행 한마디: $text")
+    }
+
     /** 지금 운행의 누적 거리와 이동시간. */
     private suspend fun measure(): Pair<Float?, Long?> {
         val trip = store.data.current ?: return null to null
+        if (BuildConfig.DEBUG && work.integro.carling.game.DemoDrive.armed) {
+            val km = work.integro.carling.game.DemoDrive.liveKm((store.clock.now() - trip.startedAt) / 1000)
+            return km to work.integro.carling.game.DemoDrive.liveSeconds(km)
+        }
         val km = vehicle.odometerKm()?.let { now -> trip.startOdometerKm?.let { (now - it).coerceAtLeast(0f) } } ?: trip.distanceKm
         // 개발 빌드: 에뮬레이터는 속도가 0이라 경과 시간을 이동시간으로 친다
         val moving = if (BuildConfig.DEBUG) (store.clock.now() - trip.startedAt) / 1000 else speed.movingSeconds
@@ -129,8 +189,8 @@ class TripTracker(
 
     private fun say(text: String) {
         if (!store.data.voiceOn) return
-        Babble.stage = Babble.stageOf(store.data.stage)
-        Babble.lineage = Babble.timbreOf(store.data.stage)
+        Babble.stage = Babble.stageOf(store.data.shownStage)
+        Babble.lineage = Babble.timbreOf(store.data.shownStage)
         Babble.enabled = true
         Babble.chirp()
         voice.say(text, delayMillis = 450)

@@ -40,7 +40,10 @@ class RulesTest {
         assertEquals(Stage.CRACKED, Stage.of(40, 1))
         assertEquals(Stage.BABY, Stage.of(1_500, 30))
         assertEquals(Stage.BREEZE, Stage.of(3_500, 60))
-        assertEquals(Stage.MYCARLING, Stage.of(9_000, 99))
+        // 버디링·소울링은 추후 공개: 포인트가 넘쳐도 꼬마링에서 멈춘다
+        assertEquals(Stage.BREEZE, Stage.of(9_000, 99))
+        assertEquals(Stage.BREEZE, Stage.of(50_000, 200))
+        assertEquals(Stage.BREEZE, Stage.lastOpen)
     }
 
     @Test
@@ -56,17 +59,17 @@ class RulesTest {
 
     @Test
     fun fewerThanThreeCardsKeepsDefault() {
-        val r = PersonalityRules.compute(listOf(card(1, TimeBucket.MORNING, TripPurpose.COMMUTE), card(2, TimeBucket.MORNING, TripPurpose.COMMUTE)))
+        val r = PersonalityRules.compute(listOf(card(1, TimeBucket.MORNING, TripPurpose.TO_WORK), card(2, TimeBucket.MORNING, TripPurpose.TO_WORK)))
         assertEquals(Personality(), r.personality)
     }
 
     @Test
     fun personalityUsesLastTenAndRecentWinsTies() {
-        val cards = List(10) { card(it.toLong(), TimeBucket.MORNING, TripPurpose.COMMUTE) } + List(10) { card(100L + it, if (it < 5) TimeBucket.NIGHT else TimeBucket.DAY, TripPurpose.FIELD, 70) }
+        val cards = List(10) { card(it.toLong(), TimeBucket.MORNING, TripPurpose.TO_WORK) } + List(10) { card(100L + it, if (it < 5) TimeBucket.NIGHT else TimeBucket.DAY, TripPurpose.WORK, 70) }
         val r = PersonalityRules.compute(cards)
         assertEquals(10, r.sampleSize)
         assertEquals(TimeBucket.DAY, r.personality.body) // 5:5 동률 → 최근 카드의 시간대
-        assertEquals(TripPurpose.FIELD, r.personality.decoration)
+        assertEquals(TripPurpose.WORK, r.personality.decoration)
         assertFalse(r.personality.heartBright)
     }
 
@@ -83,6 +86,17 @@ class RulesTest {
     }
 
     @Test
+    fun stylesNeedAllThreeParts() {
+        val full = mapOf(CarSlot.ANTENNA to CarPart.ANTENNA_SPROUT, CarSlot.WHEEL to CarPart.WHEEL_CLOVER, CarSlot.REAR to CarPart.REAR_PICNIC)
+        assertEquals(CarStyle.SPROUT_DRIVE, CarStyle.of(full))
+        assertNull(CarStyle.of(full - CarSlot.REAR))
+        assertNull(CarStyle.of(full + (CarSlot.REAR to CarPart.REAR_SUITCASE)))
+        // 모든 아이템은 정확히 한 스타일에 들어간다
+        assertEquals(CarPart.entries.toSet(), CarStyle.entries.flatMap { it.parts }.toSet())
+        assertEquals(CarPart.entries.size, CarStyle.entries.sumOf { it.parts.size })
+    }
+
+    @Test
     fun cardTiers() {
         assertEquals(CardTier.SPECIAL, CardTier.of(1, 3f, 70))
         assertEquals(CardTier.SPECIAL, CardTier.of(9, 100f, null))
@@ -96,10 +110,24 @@ class RulesTest {
         val seq = listOf(0.999, 0.1, 0.5).iterator()
         val c = LuckyBoxRules.draw { seq.next() }
         assertEquals(Rules.BOX_BONUS_MAX, c.bonusGp)
-        assertTrue(c.badge != null && c.carItem == null)
+        assertTrue(c.badge != null && c.part == null)
         val car = listOf(0.0, 0.5, 0.99).iterator()
         val c2 = LuckyBoxRules.draw { car.next() }
         assertEquals(Rules.BOX_BONUS_MIN, c2.bonusGp)
-        assertEquals(CarItem.entries.last(), c2.carItem)
+        assertEquals(CarColor.collectible.last(), c2.color)
+        val part = listOf(0.0, 0.5, 0.0).iterator()
+        assertEquals(CarPart.entries.first(), LuckyBoxRules.draw { part.next() }.part)
+    }
+
+    @Test
+    fun vibeFollowsMorningDayVersusEveningNight() {
+        fun c(id: Long, b: TimeBucket) = PersonalityInput(id, b, TripPurpose.TO_WORK, 90)
+        val sunny = PersonalityRules.compute(listOf(c(1, TimeBucket.NIGHT), c(2, TimeBucket.MORNING), c(3, TimeBucket.DAY), c(4, TimeBucket.MORNING)))
+        assertEquals(Vibe.SUNNY, sunny.personality.vibe)
+        val neon = PersonalityRules.compute(listOf(c(1, TimeBucket.MORNING), c(2, TimeBucket.EVENING), c(3, TimeBucket.NIGHT), c(4, TimeBucket.EVENING)))
+        assertEquals(Vibe.NEON, neon.personality.vibe)
+        assertTrue(neon.bodyReason().contains("헤드램프"))
+        // 3장 미만이면 정해지지 않는다
+        assertEquals(null, PersonalityRules.compute(listOf(c(1, TimeBucket.MORNING))).personality.vibe)
     }
 }

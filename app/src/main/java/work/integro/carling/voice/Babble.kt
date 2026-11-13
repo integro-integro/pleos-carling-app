@@ -35,18 +35,22 @@ object Babble {
     private val worker = Executors.newSingleThreadExecutor()
     @Volatile private var current: AudioTrack? = null
 
-    /** 성장 단계를 목소리 단계로 바꾼다. 알은 말하지 않는다. */
+    /**
+     * 성장 단계를 목소리 단계로 바꾼다. 알은 말하지 않는다(2026-11-12 사용자 확정: 단계별로 자라는 목소리).
+     * 아기링 = A 말랑 옹알이(높고 통통), 꼬마링 = C 산들바람 속삭임(낮고 숨소리), 버디링(추후 공개) = B 맑은 종소리(밝은 배음).
+     */
     fun stageOf(stage: Stage): Int = when (stage) {
-        Stage.EGG, Stage.CRACKED -> -1
-        Stage.BABY -> 0
-        Stage.BREEZE -> 2
-        Stage.MYCARLING -> 3
+        Stage.EGG -> -1
+        // 11/13 그림 배정에 맞춘 목소리: 젤리링=아기 그림, 아기링=날개 그림, 꼬마링=불꽃 그림
+        Stage.CRACKED -> 0
+        Stage.BABY -> 3
+        Stage.BREEZE, Stage.MYCARLING, Stage.SOUL -> 1
     }
 
-    /** 단계별 음색. 산들카링은 바람 섞인 소리, 마이카링은 밝은 소리. */
+    /** 단계별 음색. 아기링(날개)은 바람 섞인 소리, 꼬마링(불꽃)은 밝은 소리. */
     fun timbreOf(stage: Stage): Timbre? = when (stage) {
-        Stage.BREEZE -> Timbre.WIND
-        Stage.MYCARLING -> Timbre.LIGHT
+        Stage.BABY -> Timbre.WIND
+        Stage.BREEZE, Stage.MYCARLING, Stage.SOUL -> Timbre.LIGHT
         else -> null
     }
 
