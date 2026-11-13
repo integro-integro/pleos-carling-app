@@ -60,6 +60,11 @@ android {
     }
 }
 
+android {
+    // 도메인 단위 테스트에서 android.util.Log 호출이 실패하지 않게
+    testOptions { unitTests.isReturnDefaultValues = true }
+}
+
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
@@ -71,7 +76,10 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.pleos.vehicle)
-    implementation(libs.pleos.navihelper)
+    implementation(libs.pleos.fusedlocation)
+    implementation(libs.pleos.texttospeech)
+    // 운행일지 QR(폰으로 찍으면 메일 쓰기 화면이 열린다)
+    implementation(libs.zxing.core)
     debugImplementation(libs.androidx.compose.ui.tooling)
     testImplementation(libs.junit)
 }
@@ -83,4 +91,9 @@ tasks.register<Copy>("submissionApk") {
     from(layout.buildDirectory.file("outputs/apk/release/app-release.apk"))
     into(rootProject.layout.projectDirectory.dir("apk"))
     rename { fileName.get() }
+}
+
+// 카링 목소리 샘플을 들어보려면: ./gradlew testDebugUnitTest -Pbabble.out=폴더
+tasks.withType<Test>().configureEach {
+    systemProperty("babble.out", (project.findProperty("babble.out") ?: "").toString())
 }

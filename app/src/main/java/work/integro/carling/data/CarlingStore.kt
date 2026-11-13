@@ -3,606 +3,637 @@ package work.integro.carling.data
 import android.content.Context
 import android.util.Log
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.serialization.json.Json
-import work.integro.carling.game.CarlingItem
-import work.integro.carling.game.GameClock
-import work.integro.carling.game.GrowthRules
-import work.integro.carling.game.Light
-import work.integro.carling.game.Lineage
-import work.integro.carling.game.Region
-import java.time.LocalDate
-import java.time.temporal.ChronoUnit
+import work.integro.carling.game.Badge
+import work.integro.carling.game.JellyRules
+import work.integro.carling.game.LevelRules
+import work.integro.carling.game.ShopItem
+import work.integro.carling.game.CarColor
+import work.integro.carling.game.CarPart
+import work.integro.carling.game.CarSlot
+import work.integro.carling.game.CardState
+import work.integro.carling.game.Clock
+import work.integro.carling.game.LuckyBoxRules
+import work.integro.carling.game.Personality
+import work.integro.carling.game.PersonalityInput
+import work.integro.carling.game.PersonalityResult
+import work.integro.carling.game.PersonalityRules
+import work.integro.carling.game.Rules
+import work.integro.carling.game.Stage
+import work.integro.carling.game.TimeBucket
+import work.integro.carling.game.TripCardRules
+import work.integro.carling.game.TripPurpose
+import work.integro.carling.game.TripStatus
+import work.integro.carling.game.eulReul
+import work.integro.carling.game.iGa
+import java.util.UUID
 import kotlin.random.Random
 
 private const val TAG = "CarlingStore"
 
-/** 끝난 주행 한 번의 원재료. TripTracker가 만든다. */
-data class TripResult(
-    val startMillis: Long,
-    val endMillis: Long,
-    val distanceKm: Float?,
-    val harshEvents: Int?,
-    val placeCell: String?,
-    val placeName: String?,
-    val region: Region? = null,
-    val lat: Double? = null,
-    val lng: Double? = null,
-    val startLat: Double? = null,
-    val startLng: Double? = null,
-    /** 주행 중 기록한 실제 경로. */
-    val track: List<GeoDot> = emptyList(),
-)
-
 /**
- * 카링 상태를 기기 안에 저장하고 v1 성장 엔진을 적용한다.
- * XP(성장 에너지)와 MP(지도 포인트)는 누적이며 서로 환산하지 않는다.
- * 모든 변경은 메인 스레드에서 호출한다.
+ * 마이카링 상태를 기기 안에 저장한다. 모든 변경은 메인 스레드에서, 상태 전체를 한 번에 바꿔 저장한다.
+ *
+ * 운행 확정과 카드 완성은 별개 이벤트이고, 둘 다 참이 되는 순간 [grant]가 보상을 한 번 지급한다.
+ * 보상 원장(rewards)에 운행 ID가 이미 있으면 아무것도 하지 않으므로, 같은 이벤트가 다시 처리돼도 중복 지급이 없다.
+ * (PRD는 Room 기본키 제약을 제안했지만, 지금은 한 번에 저장하는 JSON 상태로 같은 보장을 한다.)
  */
-class CarlingStore(context: Context, val clock: GameClock) {
+class CarlingStore(private val storage: Storage, val clock: Clock, private val random: Random = Random.Default, private val zone: java.time.ZoneId = java.time.ZoneId.systemDefault()) {
 
-    private val prefs = context.getSharedPreferences("carling", Context.MODE_PRIVATE)
-    private val json = Json { ignoreUnknownKeys = true }
+    constructor(context: Context, clock: Clock) : this(PrefsStorage(context), clock)
+
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; allowStructuredMapKeys = true }
 
     var data by mutableStateOf(load())
         private set
 
-    private fun load(): CarlingData =
-        prefs.getString(KEY_DATA, null)?.let {
-            runCatching { json.decodeFromString<CarlingData>(it) }
-                .onFailure { e -> Log.w(TAG, "저장 데이터 읽기 실패, 초기화", e) }
-                .getOrNull()
-        } ?: CarlingData()
-
-    /** 길별 실제 경로. 크기가 커서 자주 저장되는 상태와 나눠, 새 경로가 생길 때만 저장한다. */
-    var routeTracks by mutableStateOf(loadTracks())
+    /** 이번 시동 시각. 이보다 먼저 확정된 임시 카드가 재안내 대상이다. 앱이 새로 뜨거나 새 운행이 시작될 때 바뀐다. */
+    var ignitionMillis by mutableLongStateOf(clock.now())
         private set
 
-    private fun loadTracks(): Map<String, List<GeoDot>> =
-        prefs.getString(KEY_TRACKS, null)?.let {
-            runCatching { json.decodeFromString<Map<String, List<GeoDot>>>(it) }.getOrNull()
-        } ?: emptyMap()
-
-    private fun saveTrack(key: String?, track: List<GeoDot>) {
-        if (key == null) return
-        routeTracks = routeTracks + (key to track)
-        prefs.edit().putString(KEY_TRACKS, json.encodeToString(routeTracks)).apply()
+    private fun load(): CarlingData {
+        val loaded = storage.read()?.let {
+            runCatching { json.decodeFromString(CarlingData.serializer(), it) }
+                .onFailure { e -> Log.w(TAG, "저장 데이터 복구 실패, 처음부터 시작", e) }
+                .getOrNull()
+        }
+        return migrate((loaded ?: CarlingData()).let { if (it.karingId.isEmpty()) it.copy(karingId = UUID.randomUUID().toString()) else it })
     }
 
-    private fun update(block: (CarlingData) -> CarlingData) {
+    /**
+     * 예전 목적을 새 목적으로 옮긴다(2026-11-12 사용자 결정): 출퇴근은 출발이 오전이면 출근, 아니면 퇴근,
+     * 가족과 함께는 목적 '기타' + 누구랑 '가족과'. 외근은 저장 이름이 같아 '업무'로 바로 읽힌다.
+     */
+    private fun migrate(d0: CarlingData): CarlingData {
+        // 세트 보상이 생기기 전에 이미 6종을 모았다면 지금 준다
+        val set = work.integro.carling.game.BadgeRules.SET_REWARD
+        var d = if (d0.badges.keys.containsAll(Badge.entries) && (d0.colors[set] ?: 0) == 0) d0.copy(colors = d0.colors + (set to 1), unseenSetReward = true) else d0
+        // 젤리가 생기기 전 기록: 보상과 연 상자로 한 번 채운다
+        if (!d.jellyStarted) d = d.copy(jellyStarted = true, jelly = d.jelly + d.rewards.keys.sumOf { JellyRules.forReward(d.trip(it)?.distanceKm) } + d.boxes.filter { it.openedAt != null }.sumOf { it.bonusGp })
+        if (d.levelSeen == 0) d = d.copy(levelSeen = LevelRules.of(d.totalGp))
+        // 버디링·소울링은 추후 공개(11/13): 이미 넘어선 기록은 열린 마지막 단계로 둔다
+        if (!d.stage.open) d = d.copy(stage = Stage.lastOpen, unseenStage = null)
+        if (d.look?.open == false) d = d.copy(look = null)
+        // 배경 톤 시안 단계(원본)에 저장된 값은 사용자가 고른 A로 맞춘다(원본은 개발 도구에서만 잠깐 볼 수 있다)
+        if (d.cabinTone == work.integro.carling.game.CabinTone.ORIGINAL) d = d.copy(cabinTone = work.integro.carling.game.CabinTone.CALM)
+        // 몸 분위기(낮형·밤형)가 생기기 전 기록
+        if (d.personality.vibe == null && d.rewards.size >= work.integro.carling.game.Rules.PERSONALITY_MIN) d = d.copy(personality = personalityOf(d).personality)
+        if (d.cards.none { it.purpose == TripPurpose.COMMUTE || it.purpose == TripPurpose.FAMILY }) return d
+        return d.copy(cards = d.cards.map { c ->
+            when (c.purpose) {
+                TripPurpose.COMMUTE -> c.copy(purpose = if (clock.hourOf(d.trip(c.tripId)?.startedAt ?: c.createdAt) < 12) TripPurpose.TO_WORK else TripPurpose.FROM_WORK)
+                TripPurpose.FAMILY -> c.copy(purpose = TripPurpose.OTHER, companion = c.companion ?: work.integro.carling.game.Companion.FAMILY)
+                else -> c
+            }
+        })
+    }
+
+    private fun update(sync: Boolean = false, block: (CarlingData) -> CarlingData) {
         data = block(data)
-        prefs.edit().putString(KEY_DATA, json.encodeToString(CarlingData.serializer(), data)).apply()
+        storage.write(json.encodeToString(CarlingData.serializer(), data), sync)
     }
 
-    // ---- 첫 만남(v1) ----
+    private fun CarlingData.log(type: String, ref: Long? = null) = copy(events = (events + EventLog(clock.now(), type, ref)).takeLast(MAX_EVENTS))
 
-    /** 알을 깨운다. 성격은 고르지 않고 첫 운전을 함께한 시간대가 정한다. 탄생일을 기록한다. */
-    fun hatch() = update {
-        val personality = it.personality ?: personalityFor(it.lightTrips)
-        it.copy(hatched = true, personality = personality, birthDate = clock.today().toString())
+    private fun CarlingData.replaceTrip(t: TripRecord) = copy(trips = trips.map { if (it.tripId == t.tripId) t else it })
+    private fun CarlingData.replaceCard(c: TripCard) = copy(cards = cards.map { if (it.tripId == c.tripId) c else it })
+
+    // ---- 운행 ----
+
+    fun markIgnition(now: Long = clock.now()) {
+        ignitionMillis = now
     }
-
-    /** 태어난 뒤 첫 쓰다듬기 — 친밀도 퀘스트를 처음 배우는 순간. */
-    fun completeFirstPet() {
-        rolloverIfNeeded()
-        update {
-            it.copy(
-                firstPetDone = true,
-                petDate = clock.today().toString(),
-                petsToday = 1,
-                intimacy = (it.intimacy + GrowthRules.TRIP_INTIMACY).coerceAtMost(100),
-                intimacyActionsToday = it.intimacyActionsToday + "PET",
-            )
-        }
-        refreshStage()
-    }
-
-    fun giveName(value: String) = update { it.copy(name = value) }
-
-    fun finishGuide() = update { it.copy(guideSeen = true) }
-
-    /** 첫 만남 온보딩에서 한 단계 뒤로 — 실수로 눌렀거나 다시 보고 싶을 때. */
-    fun onboardingBack() = update {
-        when {
-            // 위치 동의 → 지도 첫 불빛
-            it.name != null && it.firstPetDone && it.guideSeen && it.locationConsent == null ->
-                it.copy(guideSeen = false)
-            // 지도 첫 불빛 → 첫 교감
-            it.name != null && it.firstPetDone && !it.guideSeen ->
-                it.copy(firstPetDone = false)
-            // 첫 교감 → 이름 짓기
-            it.name != null && !it.firstPetDone ->
-                it.copy(name = null)
-            // 이름 짓기 → 알 깨우기(다시 깨우기 전 상태)
-            it.hatched && it.name == null ->
-                it.copy(hatched = false, personality = null, birthDate = null)
-            else -> it
-        }
-    }
-
-    /** 위치는 '처음 간 곳/다시 찾은 곳' 판정에만 쓴다. 언제든 바꿀 수 있다. */
-    fun setLocationConsent(allowed: Boolean) = update {
-        it.copy(locationConsent = allowed, locationConsentVersion = CURRENT_LOCATION_CONSENT)
-    }
-
-    val usesLocation: Boolean get() = data.locationConsent == true
-
-    /** 날씨 서비스로 어림한 위치를 보내도 되는지. 그 안내를 읽고 동의한 경우에만 된다. */
-    val usesWeather: Boolean get() = usesLocation && !data.needsLocationReconsent
-
-    // ---- 날씨 인사 ----
-
-    /** 주행 위젯에 잠깐 보여줄 인사. 저장하지 않는다. */
-    var driveGreeting by mutableStateOf<String?>(null)
-
-    /** 개발용: 인사에 쓸 시각. null이면 실제 시각을 따른다. */
-    var devGreetingHour by mutableStateOf<Int?>(null)
-
-    /** 날짜가 바뀐 뒤 첫 운전이면 true를 돌려주고 오늘 인사한 것으로 표시한다. 깨어나기 전에는 인사하지 않는다. */
-    fun takeDailyGreeting(): Boolean {
-        val today = clock.today().toString()
-        if (!data.hatched || data.weatherGreetDate == today) return false
-        update { it.copy(weatherGreetDate = today) }
-        return true
-    }
-
-    /** 개발용: 다음 주행에서 인사를 다시 하게 한다. */
-    fun devResetGreeting(hour: Int) {
-        devGreetingHour = hour
-        update { it.copy(weatherGreetDate = null) }
-    }
-
-    private fun personalityFor(lightTrips: Map<Light, Int>): Personality {
-        val light = lightTrips.maxByOrNull { it.value }?.key ?: Light.ofHour(clock.hourOf(System.currentTimeMillis()))
-        return when (light) {
-            Light.DAWN, Light.DAY -> Personality.DODO
-            Light.SUNSET -> Personality.NARUN
-            Light.STAR -> Personality.LUMI
-        }
-    }
-
-    // ---- 진행 중 주행 ----
-
-    fun beginTrip(startMillis: Long, startOdometerKm: Float?) =
-        update { it.copy(activeTrip = ActiveTrip(startMillis, startOdometerKm)) }
-
-    fun clearActiveTrip() = update { it.copy(activeTrip = null) }
-
-    fun setTripStart(lat: Double, lng: Double) = update {
-        it.copy(activeTrip = it.activeTrip?.copy(startLat = lat, startLng = lng))
-    }
-
-    fun dismissMapNotice() = update { it.copy(pendingMapNotice = false) }
 
     /**
-     * 첫 운전은 위치 동의 전에 끝난다. 동의하면 차가 서 있는 곳(첫 운전의 도착지)에 첫 길을 켠다.
+     * TripStarted: 새 운행 ID 발급, 상태 = 기록 중. 출발할 때 남은 양이 직전 운행의 주차 때보다
+     * [Rules.REFUEL_MIN_PERCENT] 이상 늘었으면 그 사이 주유·충전한 것으로 기록한다.
      */
-    fun lightFirstTrip(lat: Double, lng: Double) = update {
-        if (!it.firstTripDone || it.tripCount > 1 || it.mapRoutes.isNotEmpty()) return@update it
-        val change = it.mapRoutes.afterTrip(null, null, lat, lng, it.firstTripPlaceName, it.firstTripDistanceKm, clock.today().toString())
-        it.copy(mapRoutes = change.routes)
-    }
-
-    // ---- 날짜 롤오버 / 단계 계산 ----
-
-    /** 날이 바뀌면 오늘 XP·MP를 누적으로 접고 일일 집계를 리셋한다. */
-    private fun rolloverIfNeeded() {
-        val today = clock.today().toString()
-        var d = data
-        if (d.xpDate != today) {
-            d = d.copy(
-                totalXpPastDays = d.totalXpPastDays + d.xpToday,
-                xpDate = today,
-                tripsToday = 0,
-                safeTripsToday = 0,
-                fuelXpGiven = false,
-                intimacyActionsToday = emptySet(),
-            )
+    fun startTrip(now: Long, odometerKm: Float?, simulated: Boolean = false, energy: work.integro.carling.vehicle.EnergyReading? = null): Long {
+        update(sync = true) { d ->
+            val last = d.trips.lastOrNull { it.endPercent != null }
+            val now0 = energy?.percent
+            val refuel = if (last?.endPercent != null && now0 != null && now0 - last.endPercent >= Rules.REFUEL_MIN_PERCENT)
+                Refuel(now, energy.isEv, last.endPercent, now0, simulated) else null
+            val trip = TripRecord(now, TripStatus.RECORDING, now, startOdometerKm = odometerKm, simulated = simulated, ev = energy?.isEv, startPercent = now0, startWh = energy?.batteryWh)
+            var next = d.copy(trips = (d.trips + trip).takeLast(MAX_TRIPS))
+            if (refuel != null) next = next.copy(refuels = (next.refuels + refuel).takeLast(500)).log(if (refuel.ev) "charged" else "refueled")
+            next
         }
-        if (d.mpDate != today) {
-            d = d.copy(
-                totalMpPastDays = d.totalMpPastDays + d.mpTodayValue,
-                mpDate = today,
-                mpTodayValue = 0,
-            )
+        return now
+    }
+
+    /** 주차할 때 에너지 상태와 차량 효율을 남긴다. 차량 효율이 없으면 EV 배터리 사용량으로 계산한다. */
+    fun recordEnergy(tripId: Long, energy: work.integro.carling.vehicle.EnergyReading?, vehicleEfficiency: Float?) {
+        val t = data.trip(tripId) ?: return
+        val ev = energy?.isEv ?: t.ev
+        val usedKwh = if (t.startWh != null && energy?.batteryWh != null) (t.startWh - energy.batteryWh) / 1000f else null
+        val computed = if (usedKwh != null && usedKwh > 0.05f && (t.distanceKm ?: 0f) > 0f) t.distanceKm!! / usedKwh else null
+        val eff = vehicleEfficiency?.takeIf { it > 0f && it < 100f } ?: computed
+        update { it.replaceTrip(t.copy(ev = ev, endPercent = energy?.percent ?: t.endPercent, endWh = energy?.batteryWh ?: t.endWh, efficiency = eff ?: t.efficiency)) }
+    }
+
+    /** 주행 중 스냅샷. 앱이 꺼져도 여기서 이어 간다. */
+    fun snapshot(now: Long, distanceKm: Float?, movingSec: Long?, harsh: Int?) {
+        val t = data.current?.takeIf { it.status == TripStatus.RECORDING } ?: return
+        update { it.replaceTrip(t.copy(lastSnapshotAt = now, distanceKm = distanceKm ?: t.distanceKm, movingSec = movingSec ?: t.movingSec, harsh = harsh ?: t.harsh)) }
+    }
+
+    /**
+     * TripParked: 상태 = 주차됨, 주차 시각 저장. 최소 기준을 넘으면 임시 카드를 만들고(이미 있으면 수치만 갱신) 안내한다.
+     * 이미 완성한 카드는 다시 묻지 않는다.
+     */
+    fun park(now: Long, distanceKm: Float?, movingSec: Long?, harsh: Int?) {
+        val t = data.current?.takeIf { it.status == TripStatus.RECORDING } ?: return
+        val parked = t.copy(status = TripStatus.PARKED, lastParkAt = now, lastSnapshotAt = now, distanceKm = distanceKm ?: t.distanceKm, movingSec = movingSec ?: t.movingSec, harsh = harsh ?: t.harsh)
+        update(sync = true) { d ->
+            var next = d.replaceTrip(parked)
+            val card = d.card(t.tripId)
+            if (card == null && Rules.meetsCardMinimum(parked.distanceKm, parked.movingSec)) {
+                val number = (d.cards.maxOfOrNull { it.number } ?: 0) + 1
+                next = next.copy(cards = (next.cards + TripCard(t.tripId, number, createdAt = now)).takeLast(MAX_TRIPS), unseenCards = next.unseenCards + t.tripId).log("card_shown", t.tripId)
+            } else if (card?.state == CardState.DRAFT) {
+                next = next.copy(unseenCards = (next.unseenCards - t.tripId) + t.tripId).log("card_shown", t.tripId)
+            }
+            next
         }
-        if (d !== data) update { d }
     }
 
-    private fun refreshStage() = update {
-        val idx = it.stageIndexOn(clock.today())
-        val lineage = if (it.lineage == null && idx >= 2) GrowthRules.dominantLineage(it.lineageScores) else it.lineage
-        val updated = it.copy(reachedStage = idx, lineage = lineage)
-        if (idx > it.reachedStage) restartGauges(updated, idx) else updated
-    }
-
-    /** 성장·진화하면 게이지를 모두 비운다. XP·MP는 초과분을 버려 새 단계의 시작값에서 다시 센다. */
-    private fun restartGauges(d: CarlingData, stage: Int): CarlingData {
-        val spec = GrowthRules.STAGES[stage]
-        return d.copy(
-            intimacy = 0,
-            fullness = 0,
-            totalXpPastDays = d.totalXpPastDays - GrowthRules.overflow(d.totalXp, spec.cumXp),
-            totalMpPastDays = d.totalMpPastDays - GrowthRules.overflow(d.totalMp, spec.cumMp),
-        )
-    }
-
-    // ---- 하루 루틴(케어) ----
-
-    fun greetIfNewDay(): Boolean {
-        rolloverIfNeeded()
-        applyDailyDecay()
-        refreshStage()
-        val today = clock.today().toString()
-        if (data.lastGreetDate == today) return false
-        update {
-            it.copy(
-                lastGreetDate = today,
-                intimacy = (it.intimacy + GrowthRules.GREET_INTIMACY).coerceAtMost(100),
-            )
-        }
+    /** TripResumed: 주차 5분 안에 다시 출발하면 같은 운행에 계속 쌓는다. 합칠 수 없으면 false. */
+    fun resume(now: Long): Boolean {
+        val t = data.current?.takeIf { it.status == TripStatus.PARKED } ?: return false
+        if (now - (t.lastParkAt ?: now) >= Rules.STOP_MERGE_MILLIS) return false
+        update(sync = true) { it.replaceTrip(t.copy(status = TripStatus.RECORDING, lastSnapshotAt = now)).copy(unseenCards = it.unseenCards - t.tripId) }
         return true
     }
 
-    fun canFeedToday(): Boolean = data.lastFeedDate != clock.today().toString()
-
-    /** 밥·간식 주기 — 포만감(케어) + 친밀도 행동 XP(하루 2행동까지 +5). */
-    fun feed() {
-        if (!canFeedToday()) return
-        rolloverIfNeeded()
-        update {
-            it.copy(
-                lastFeedDate = clock.today().toString(),
-                fullness = (it.fullness + GrowthRules.FEED_FULLNESS).coerceAtMost(100),
-                intimacyActionsToday = it.intimacyActionsToday + "FEED",
-            )
+    /**
+     * 주차 5분이 지난 운행을 확정한다. 앱이 꺼져 있던 동안의 5분도 여기서 소급 판정한다(확정 시각 = 주차 + 5분).
+     * 기록 중인 채로 앱이 꺼졌던 운행은 [liveTripId]가 아니면 마지막 스냅샷 시각에 주차한 것으로 본다.
+     */
+    fun settle(now: Long = clock.now(), liveTripId: Long? = null) {
+        val t = data.current ?: return
+        if (t.status == TripStatus.RECORDING && t.tripId != liveTripId && now - t.lastSnapshotAt >= Rules.SNAPSHOT_MILLIS * 3) {
+            Log.i(TAG, "기록 중 꺼진 운행: 마지막 스냅샷에 주차한 것으로 처리")
+            update(sync = true) { it.replaceTrip(t.copy(status = TripStatus.PARKED, lastParkAt = t.lastSnapshotAt)) }
         }
-        refreshStage()
+        val p = data.current?.takeIf { it.status == TripStatus.PARKED } ?: return
+        val parkAt = p.lastParkAt ?: return
+        if (now - parkAt >= Rules.STOP_MERGE_MILLIS) confirm(p.tripId, parkAt + Rules.STOP_MERGE_MILLIS)
     }
+    // ---- 월간 리포트 ----
 
-    /** 충전 세션 한 번 — 포만감 + 연료·충전 XP(하루 1회 +10). */
-    fun onCharging() {
-        rolloverIfNeeded()
-        update {
-            it.copy(
-                fullness = (it.fullness + GrowthRules.CHARGE_FULLNESS).coerceAtMost(100),
-                fuelXpGiven = true,
-            )
+    /**
+     * 지난달이 꽉 찼으면 그달 리포트를 한 번 만들어 저장하고 '짜잔' 알림을 띄운다(11/13 사용자 결정).
+     * 그달에 확정 운행이 없거나 이미 만들었으면 아무것도 하지 않는다. 지난 몇 달을 거슬러 만들지는 않는다.
+     */
+    fun publishMonthReport(today: java.time.LocalDate = clock.today()) {
+        val month = java.time.YearMonth.from(today).minusMonths(1)
+        val key = month.toString()
+        if (data.monthReports.any { it.month == key }) return
+        val inMonth = data.trips.filter { it.status == TripStatus.CONFIRMED && java.time.YearMonth.from(java.time.Instant.ofEpochMilli(it.startedAt).atZone(zone).toLocalDate()) == month }
+        if (inMonth.isEmpty()) return
+        val its = data.trips.filter { it.status == TripStatus.CONFIRMED }.map { t ->
+            val c = data.card(t.tripId)?.takeIf { it.state == CardState.COMPLETED }
+            work.integro.carling.game.InsightTrip(t.startedAt, t.distanceKm, t.movingSec, c?.purpose, t.startDong, t.endDong, t.score, t.harsh, t.efficiency)
         }
-        refreshStage()
-    }
-
-    /** 지역 특산물 먹이기. 배고플 때만 먹고, 포만감을 채우며 하루 XP 상한과 별도로 보너스 XP를 준다. */
-    fun eatFood(region: Region): Boolean {
-        val owned = data.foods[region] ?: 0
-        if (owned <= 0 || !GrowthRules.isHungry(data.fullness)) return false
-        rolloverIfNeeded()
-        update {
-            it.copy(
-                foods = it.foods + (region to owned - 1),
-                fullness = (it.fullness + GrowthRules.FOOD_FULLNESS).coerceAtMost(100),
-                totalXpPastDays = it.totalXpPastDays + region.bonusXp,
-            )
-        }
-        refreshStage()
-        return true
-    }
-
-    /** 이 지역 특산물을 오늘 아직 받지 않았다면 하나 더한다. */
-    private fun withRegionGift(d: CarlingData, region: Region?, day: String): CarlingData {
-        if (region == null || d.foodGiftDates[region] == day) return d
-        return d.copy(
-            foods = d.foods + (region to (d.foods[region] ?: 0) + 1),
-            foodGiftDates = d.foodGiftDates + (region to day),
+        val ev = inMonth.none { it.ev == false }
+        val insights = work.integro.carling.game.InsightRules.build(
+            work.integro.carling.game.ReportPeriod(work.integro.carling.game.PeriodUnit.MONTH), month.atEndOfMonth(), zone, its, ev,
+            if (ev) data.kwhPrice else data.fuelPrice, { null }, null,
         )
+        val report = MonthReport(key, clock.now(), insights, inMonth.size, inMonth.sumOf { (it.distanceKm ?: 0f).toDouble() }.toFloat(), (inMonth.sumOf { it.movingSec ?: 0L } / 60).toInt())
+        update(sync = true) { it.copy(monthReports = (it.monthReports + report).takeLast(36), unseenMonthReport = key).log("month_report_created") }
     }
 
-    /** 쓰다듬기 — 친밀도(케어) 하루 상한 + 친밀도 행동 XP. */
-    fun pet() {
-        rolloverIfNeeded()
-        val today = clock.today().toString()
-        val count = if (data.petDate == today) data.petsToday else 0
-        update {
-            it.copy(
-                petDate = today,
-                petsToday = (count + 1).coerceAtMost(GrowthRules.DAILY_PETS),
-                intimacy = if (count < GrowthRules.DAILY_PETS)
-                    (it.intimacy + GrowthRules.PET_INTIMACY).coerceAtMost(100) else it.intimacy,
-                intimacyActionsToday = it.intimacyActionsToday + "PET",
-            )
+    fun seenMonthReport() = update { it.copy(unseenMonthReport = null).log("month_report_opened") }
+
+    fun monthReport(month: java.time.YearMonth): MonthReport? = data.monthReports.firstOrNull { it.month == month.toString() }
+
+
+    /** TripConfirmed: 거리·시간 동결. 이미 확정된 운행이면 상태 변화 없음. */
+    fun confirm(tripId: Long, at: Long) {
+        val t = data.trip(tripId) ?: return
+        if (t.status == TripStatus.CONFIRMED) return
+        update(sync = true) { d ->
+            // 기준 미달로 카드가 없는 운행도 기록으로 남는다
+            grant(d.replaceTrip(t.copy(status = TripStatus.CONFIRMED, confirmedAt = at)), tripId)
         }
-        refreshStage()
+        Log.i(TAG, "운행 확정: $tripId")
     }
 
-    /** 놀아주기 / 말 걸기 — 친밀도 행동 XP(서로 다른 2행동까지). */
-    fun interact(action: String) {
-        rolloverIfNeeded()
-        update { it.copy(intimacyActionsToday = it.intimacyActionsToday + action) }
-        refreshStage()
-    }
+    // ---- 카드 ----
 
-    /** 아이템을 착용한다. null이면 벗는다. 성장 1 전에는 착용할 수 없다. */
-    fun equipItem(item: CarlingItem?) = update {
-        if (GrowthRules.itemsUnlocked(it.reachedStage)) it.copy(equippedItem = item) else it
-    }
-
-    fun markItemIntroSeen() = update { it.copy(itemIntroSeen = true) }
-
-    /** 지금 단계까지 변화 장면을 본 것으로 표시한다. */
-    fun markStageCelebrated() = update { it.copy(celebratedStage = it.reachedStage) }
-
-    /** 개발용: 지금 단계의 변화 장면을 다시 보여준다. */
-    fun devReplayStageChange() = update {
-        if (it.reachedStage > 0) it.copy(celebratedStage = it.reachedStage - 1) else it
-    }
-
-    fun toggleVoice() = update { it.copy(voiceOn = !it.voiceOn) }
-
-    fun setScene(value: Scene) = update { it.copy(scene = value) }
-
-    /** 개발용: 낮밤 미리보기. null이면 실제 시각을 따른다. 저장하지 않는다. */
-    var devNightness by mutableStateOf<Float?>(null)
-
-    /** 개발용: 외형 미리보기(단계, 계열). null이면 실제 단계를 따른다. 저장하지 않는다. */
-    var devLook by mutableStateOf<Pair<Int, Lineage>?>(null)
-
-    fun dismissTripCard() = update { it.copy(pendingCard = null) }
-
-    private fun applyDailyDecay() {
-        val today = clock.today()
-        val last = data.lastDecayDate?.let(LocalDate::parse)
-        if (last == null) {
-            update { it.copy(lastDecayDate = today.toString()) }
-            return
-        }
-        val days = ChronoUnit.DAYS.between(last, today).toInt()
-        if (days <= 0) return
-        update {
-            it.copy(
-                lastDecayDate = today.toString(),
-                // 이미 하한보다 낮으면(성장 직후) 올리지 않는다
-                fullness = (it.fullness - days * GrowthRules.DAILY_FULLNESS_DECAY)
-                    .coerceAtLeast(minOf(it.fullness, GrowthRules.MIN_FULLNESS)),
+    /** CardCompleted: 목적을 골라 완성. 운행이 확정돼 있으면 같은 저장에서 보상까지 지급한다. */
+    fun complete(tripId: Long, purpose: TripPurpose, tags: List<String> = emptyList(), companion: work.integro.carling.game.Companion? = null, custom: String? = null) {
+        expireCards()
+        val card = data.card(tripId)?.takeIf { it.state == CardState.DRAFT } ?: return
+        val clean = tags.mapNotNull(TripCardRules::cleanTag).distinct()
+        update(sync = true) { d ->
+            val own = customOf(purpose, custom)
+            val done = card.copy(state = CardState.COMPLETED, completedAt = clock.now(), purpose = purpose, tags = clean, companion = companion, customPurpose = own)
+            grant(
+                d.replaceCard(done).copy(
+                    unseenCards = d.unseenCards - tripId,
+                    customTags = (d.customTags - clean.toSet() + clean).takeLast(MAX_TAGS),
+                    customPurposes = rememberPurpose(d.customPurposes, own),
+                ).log("card_completed", tripId),
+                tripId,
             )
         }
     }
 
-    // ---- 트립카드 저장 (MP) ----
-
-    /** 지금 저장하면 받을 MP. */
-    fun saveMpFor(card: TripCard): Int = GrowthRules.saveMp(
-        newPlace = card.newPlace == true || card.newRoute,
-        alreadyRewarded = card.mpGained > 0,
-        rewardedOnDay = data.tripCards.count { it.date == card.date && it.mpGained > 0 },
-    )
-
-    /** 트립카드를 저장하거나 저장을 취소한다. 취소해도 받은 MP는 그대로이고, 다시 저장해도 더 주지 않는다. */
-    fun toggleTripSaved(number: Int) {
-        rolloverIfNeeded()
-        val card = data.tripCards.firstOrNull { it.number == number } ?: return
-        val mp = if (card.saved) 0 else saveMpFor(card)
-        update {
-            it.copy(
-                mpTodayValue = it.mpTodayValue + mp,
-                tripCards = it.tripCards.map { c ->
-                    if (c.number == number) c.copy(saved = !c.saved, mpGained = c.mpGained + mp) else c
-                },
-            )
+    /** 완성 후 목적 수정. 보상을 받은 카드라면 개성을 다시 계산한다. */
+    fun editPurpose(tripId: Long, purpose: TripPurpose, companion: work.integro.carling.game.Companion? = data.card(tripId)?.companion, tags: List<String>? = null, custom: String? = data.card(tripId)?.customPurpose) {
+        val card = data.card(tripId)?.takeIf { it.state == CardState.COMPLETED } ?: return
+        val clean = tags?.mapNotNull(TripCardRules::cleanTag)?.distinct() ?: card.tags
+        val own = customOf(purpose, custom)
+        if (card.purpose == purpose && card.companion == companion && card.tags == clean && card.customPurpose == own) return
+        update(sync = true) { d ->
+            recomputePersonality(d.replaceCard(card.copy(purpose = purpose, companion = companion, tags = clean, customPurpose = own)))
+                .copy(customPurposes = rememberPurpose(d.customPurposes, own)).log("card_edited", tripId)
         }
-        refreshStage()
     }
 
-    // ---- 진화 퀘스트 ----
+    /** 직접 적은 목적은 '기타'일 때만 남긴다. */
+    private fun customOf(purpose: TripPurpose, custom: String?): String? =
+        if (purpose == TripPurpose.OTHER) custom?.let(TripCardRules::cleanTag) else null
 
-    fun savedTripCount(): Int = data.tripCards.count { it.saved }
+    private fun rememberPurpose(list: List<String>, own: String?): List<String> =
+        if (own == null) list else (list - own + own).takeLast(MAX_TAGS)
 
-    fun canCompleteQuest(evoIndex: Int): Boolean {
-        val spec = GrowthRules.EVOLUTIONS[evoIndex] ?: return false
-        return evoIndex !in data.doneQuests && savedTripCount() >= spec.memoriesNeeded
+    /** 절약 금액 단가(원). */
+    fun setPrice(ev: Boolean, won: Int) = update { if (ev) it.copy(kwhPrice = won.coerceIn(50, 2_000)) else it.copy(fuelPrice = won.coerceIn(500, 4_000)) }
+
+    /** 운행일지 받을 메일 주소. */
+    fun setLogEmail(email: String?) = update { it.copy(logEmail = email?.trim()?.takeIf { e -> e.isNotEmpty() }) }
+
+    /** 임시 카드를 모두 완성한다. 목적은 추천값, 없으면 '기타'. */
+    fun completeAllDrafts() {
+        expireCards()
+        data.draftCards.forEach { c -> complete(c.tripId, suggestPurpose(c.tripId) ?: TripPurpose.OTHER, c.tags, c.companion, c.customPurpose) }
     }
 
-    fun completeQuest(evoIndex: Int) {
-        if (!canCompleteQuest(evoIndex)) return
-        update { it.copy(doneQuests = it.doneQuests + evoIndex) }
-        refreshStage()
+    /** '나중에': 안내만 닫는다. */
+    fun later() = update { d -> d.unseenCards.fold(d.copy(unseenCards = emptyList())) { acc, id -> acc.log("card_later", id) } }
+
+    /** 재안내를 보여준 순간부터 24시간 기한이 시작된다. 이미 재안내한 카드는 바뀌지 않는다. */
+    fun markReminded(ids: Collection<Long>, now: Long = clock.now()) {
+        if (ids.isEmpty()) return
+        update(sync = true) { d ->
+            ids.fold(d.copy(cards = d.cards.map { if (it.tripId in ids && it.state == CardState.DRAFT && it.remindedAt == null) it.copy(remindedAt = now) else it })) { acc, id -> acc.log("card_reprompted", id) }
+        }
     }
 
-    // ---- 주행 기록 ----
-
-    fun recordTrip(trip: TripResult) {
-        val seconds = (trip.endMillis - trip.startMillis) / 1000
-        if (seconds < GrowthRules.MIN_TRIP_SECONDS) return
-
-        val day = clock.dateOf(trip.startMillis).toString()
-        val minutes = ((seconds + 30) / 60).toInt().coerceAtLeast(1)
-        val light = Light.ofHour(clock.hourOf(trip.startMillis))
-        val safety = if (trip.harshEvents == null || trip.harshEvents == 0) 95
-        else (92 - trip.harshEvents * 4).coerceAtLeast(72)
-
-        // v1 첫 만남: 알이 깨어나기 전의 '첫 운전' → 트립카드 #001만 만들고 성장 엔진은 돌리지 않는다.
-        if (!data.hatched) {
-            if (data.firstTripDone) return
-            update {
-                withRegionGift(it, trip.region, day).copy(
-                    firstTripDone = true,
-                    firstTripMinutes = minutes,
-                    firstTripDistanceKm = trip.distanceKm,
-                    firstTripSafety = safety,
-                    firstTripPlaceName = trip.placeName,
-                    togetherDays = it.togetherDays + day,
-                    tripCount = 1,
-                    totalMinutes = it.totalMinutes + minutes,
-                    lightMinutes = it.lightMinutes + (light to minutes),
-                    lightTrips = it.lightTrips + (light to 1),
-                    placeCells = trip.placeCell?.let { c -> it.placeCells + c } ?: it.placeCells,
-                    newPlaces = it.newPlaces + if (trip.placeCell != null) 1 else 0,
-                    lineageScores = mergeScores(it.lineageScores, GrowthRules.scoreTrip(trip.distanceKm, trip.harshEvents, trip.placeCell != null)),
-                    mapRoutes = it.mapRoutes.afterTrip(trip.startLat, trip.startLng, trip.lat, trip.lng, trip.placeName, trip.distanceKm, day).routes,
-                    tripCards = it.tripCards + TripCard(
-                        number = 1,
-                        date = day,
-                        startMillis = trip.startMillis,
-                        minutes = minutes,
-                        distanceKm = trip.distanceKm,
-                        light = light,
-                        safety = safety.takeIf { trip.harshEvents != null },
-                        placeName = trip.placeName,
-                        newPlace = true,
-                        dayNumber = 1,
-                        placeCell = trip.placeCell,
-                        highlights = listOfNotNull(trip.region?.let { r -> "${r.foodName}을 받았어요" }, "우리의 첫 드라이브"),
-                    ),
-                )
-            }
-            return
-        }
-
-        rolloverIfNeeded()
-        val before = data
-        val oldStage = before.reachedStage
-        val safe = safety >= GrowthRules.SAFE_SCORE_MIN
-        val newPlace = trip.placeCell?.let { it !in before.placeCells }
-
-        // 진화카드 추첨 — 유효 운전일당 1회
-        var ownedCards = before.ownedCards
-        var cardFails = before.cardFails
-        var cardDrawDate = before.cardDrawDate
-        var cardGotLabel: String? = null
-        val dayNum = before.dayNumber(clock.dateOf(trip.startMillis))
-        if (cardDrawDate != day) {
-            cardDrawDate = day
-            val evo = GrowthRules.activeEvolution(dayNum, ownedCards)
-            if (evo != null) {
-                val fails = cardFails[evo.evoIndex] ?: 0
-                val win = fails + 1 >= GrowthRules.CARD_PITY || Random.nextFloat() < GrowthRules.cardChance(before.tripsToday + 1)
-                if (win) {
-                    ownedCards = ownedCards + evo.evoIndex
-                    cardGotLabel = "${GrowthRules.STAGES.first { it.evoIndex == evo.evoIndex }.label} 카드"
-                } else {
-                    cardFails = cardFails + (evo.evoIndex to fails + 1)
-                }
-            }
-        }
-
-        val highlights = mutableListOf<String>()
-        val giftFood = trip.region?.takeIf { before.foodGiftDates[it] != day }
-        giftFood?.let { highlights += "${it.foodName}을 받았어요" }
-        val track = simplifyTrack(trip.track)
-        val mapChange = before.mapRoutes.afterTrip(trip.startLat, trip.startLng, trip.lat, trip.lng, trip.placeName, trip.distanceKm, day, track) { routeTracks[it.trackKey] }
-        if (mapChange.newRoute) highlights += "새로운 길이 지도에 켜졌어요"
-        else if (mapChange.lit) highlights += "달렸던 길이 지도에서 더 밝아졌어요"
-        if (newPlace == true) highlights += "처음 보는 풍경"
-        cardGotLabel?.let { highlights += "$it 획득" }
-
-        var next = before.copy(
-            togetherDays = before.togetherDays + day,
-            tripCount = before.tripCount + 1,
-            totalMinutes = before.totalMinutes + minutes,
-            tripsToday = before.tripsToday + 1,
-            safeTripsToday = before.safeTripsToday + if (safe) 1 else 0,
-            lightMinutes = before.lightMinutes + (light to (before.lightMinutes[light] ?: 0) + minutes),
-            lightTrips = before.lightTrips + (light to (before.lightTrips[light] ?: 0) + 1),
-            placeCells = trip.placeCell?.let { before.placeCells + it } ?: before.placeCells,
-            newPlaces = before.newPlaces + if (newPlace == true) 1 else 0,
-            revisits = before.revisits + if (newPlace == false) 1 else 0,
-            intimacy = (before.intimacy + GrowthRules.TRIP_INTIMACY).coerceAtMost(100),
-            lineageScores = mergeScores(before.lineageScores, GrowthRules.scoreTrip(trip.distanceKm, trip.harshEvents, newPlace)),
-            ownedCards = ownedCards,
-            cardFails = cardFails,
-            cardDrawDate = cardDrawDate,
-        )
-
-        val newStage = next.stageIndexOn(clock.dateOf(trip.startMillis))
-        val lineageWasNull = before.lineage == null
-        val lineage = if (lineageWasNull && newStage >= 2) GrowthRules.dominantLineage(next.lineageScores) else before.lineage
-        next = next.copy(reachedStage = newStage, lineage = lineage)
-        if (newStage > oldStage) next = restartGauges(next, newStage)
-
-        if (newStage > oldStage) highlights += "${GrowthRules.stageName(newStage, lineage)} 도달"
-        if (lineageWasNull && lineage != null) highlights += "${lineage.label} 계열이 되었어요"
-
-        val number = before.tripCount + 1
-        saveTrack(mapChange.trackKey, track)
-        update {
-            withRegionGift(next, giftFood, day).copy(
-                pendingCard = number,
-                mapRoutes = mapChange.routes,
-                pendingMapNotice = next.pendingMapNotice || mapChange.newRoute,
-                tripCards = before.tripCards + TripCard(
-                    number = number,
-                    date = day,
-                    startMillis = trip.startMillis,
-                    minutes = minutes,
-                    distanceKm = trip.distanceKm,
-                    light = light,
-                    safety = safety.takeIf { trip.harshEvents != null },
-                    placeName = trip.placeName,
-                    newPlace = newPlace,
-                    dayNumber = dayNum,
-                    placeCell = trip.placeCell,
-                    newRoute = mapChange.newRoute,
-                    driveXpToday = GrowthRules.driveXp(next.tripsToday, next.safeTripsToday),
-                    highlights = highlights,
+    /** 기한이 지난 임시 카드를 만료한다. 운행 기록은 그대로 남는다. */
+    fun expireCards(now: Long = clock.now()) {
+        val d0 = data
+        val expired = d0.cards.filter { TripCardRules.isExpired(it.clock(d0.trip(it.tripId)), now) }.map { it.tripId }.toSet()
+        if (expired.isEmpty()) return
+        update(sync = true) { d ->
+            expired.fold(
+                d.copy(
+                    cards = d.cards.map { if (it.tripId in expired) it.copy(state = CardState.EXPIRED, expiredAt = now) else it },
+                    unseenCards = d.unseenCards - expired,
                 ),
-            )
+            ) { acc, id -> acc.log("card_expired", id) }
         }
     }
 
-    private fun mergeScores(a: Map<Lineage, Float>, b: Map<Lineage, Float>): Map<Lineage, Float> {
-        if (b.isEmpty()) return a
-        val m = a.toMutableMap()
-        b.forEach { (k, v) -> m[k] = (m[k] ?: 0f) + v }
-        return m
+    /** 재안내할 카드(최신 순). */
+    fun reminderCards(now: Long = clock.now()): List<TripCard> =
+        data.cards.filter { TripCardRules.needsReminder(it.clock(data.trip(it.tripId)), ignitionMillis, now) && it.tripId !in data.unseenCards }.asReversed()
+
+    /** 위치 없이, 비슷한 시간대에 고른 목적을 기본값으로 제안한다. */
+    fun suggestPurpose(tripId: Long): TripPurpose? {
+        val trip = data.trip(tripId) ?: return null
+        val history = data.cards.filter { it.state == CardState.COMPLETED && it.purpose != null && it.tripId != tripId }
+            .mapNotNull { c -> data.trip(c.tripId)?.let { Triple(clock.hourOf(it.startedAt), isWeekend(it.startedAt), c.purpose!!) } }
+        return TripCardRules.suggestPurpose(clock.hourOf(trip.startedAt), isWeekend(trip.startedAt), history)
     }
 
-    // ---- 개발용 ----
+    fun isWeekend(millis: Long): Boolean = clock.dateOf(millis).dayOfWeek.value >= 6
 
-    fun devGiveFood(region: Region) = update { withRegionGift(it, region, clock.today().toString() + "#" + it.foods.values.sum()) }
-
-    fun devMakeHungry() = update { it.copy(fullness = GrowthRules.MIN_FULLNESS) }
-
-    fun devGrantCard(evoIndex: Int) {
-        update { it.copy(ownedCards = it.ownedCards + evoIndex) }
-        refreshStage()
-    }
+    // ---- 보상 ----
 
     /**
-     * 개발용: 이름·첫 만남·설정은 그대로 두고 D1 아기 카링으로 되돌린다.
-     * 게임 시계와 성장, 계열, 트립카드, 아이템을 모두 초기화한다.
+     * RewardGranted: 운행 = 확정, 카드 = 완성, 원장에 운행 ID 없음 — 셋이 모두 참일 때만 한 번.
+     * 원장 기록 → 포인트 가산 → 단계 판정 → 개성 스냅샷 → 럭키박스 생성을 한 번에 반영한다.
      */
-    fun devRestartFromD1() {
-        clock.reset()
-        routeTracks = emptyMap()
-        prefs.edit().remove(KEY_TRACKS).apply()
-        devLook = null
-        val old = data
-        update {
-            CarlingData(
-                hatched = true,
-                personality = old.personality,
-                name = old.name,
-                birthDate = clock.today().toString(),
-                firstTripDone = true,
-                firstPetDone = true,
-                guideSeen = true,
-                locationConsent = old.locationConsent,
-                locationConsentVersion = old.locationConsentVersion,
-                voiceOn = old.voiceOn,
-                scene = old.scene,
-            )
-        }
+    private fun grant(d: CarlingData, tripId: Long): CarlingData {
+        val trip = d.trip(tripId) ?: return d
+        val card = d.card(tripId) ?: return d
+        if (trip.status != TripStatus.CONFIRMED || card.state != CardState.COMPLETED || tripId in d.rewards) return d
+        val now = clock.now()
+        val gp = Rules.growthPoints(trip.distanceKm, trip.movingSec)
+        val day = clock.dateOf(trip.confirmedAt ?: now).toString()
+        val boxesToday = d.dailyBoxes[day] ?: 0
+        val box = if (boxesToday < Rules.BOX_DAILY_MAX) {
+            val bucket = work.integro.carling.game.TimeBucket.of(clock.hourOf(trip.startedAt))
+            val same = if (card.purpose == null) 0 else d.cards.count { it.state == CardState.COMPLETED && it.purpose == card.purpose }
+            val fits = work.integro.carling.game.BadgeRules.eligible(bucket, isWeekend(trip.startedAt), card.purpose, same, trip.score)
+            val c = LuckyBoxRules.draw(fits) { random.nextDouble() }
+            LuckyBox((d.boxes.maxOfOrNull { it.boxId } ?: 0) + 1, tripId, c.bonusGp, c.badge, c.part, now, color = c.color)
+        } else null
+        val next = d.copy(
+            jelly = d.jelly + JellyRules.forReward(trip.distanceKm),
+            rewards = d.rewards + (tripId to Reward(now, gp, box?.boxId)),
+            totalGp = d.totalGp + gp,
+            boxes = if (box != null) (d.boxes + box).takeLast(MAX_TRIPS) else d.boxes,
+            dailyBoxes = if (box != null) (d.dailyBoxes + (day to boxesToday + 1)).toList().takeLast(60).toMap() else d.dailyBoxes,
+        ).log("reward_granted", tripId)
+        return recomputePersonality(updateStage(next))
     }
 
-    fun reset() {
-        prefs.edit().clear().apply()
+    private fun updateStage(d: CarlingData): CarlingData {
+        val target = Stage.of(d.totalGp, d.rewards.size)
+        if (target.ordinal <= d.stage.ordinal) return d // 단계는 내려가지 않는다
+        return d.copy(stage = target, unseenStage = target, stageHistory = d.stageHistory + StageChange(clock.now(), d.stage, target)).log("stage_changed")
+    }
+
+    /** 보상이 지급된 운행 중 최근 10장(출발 순)으로 개성을 다시 정하고, 바뀌었으면 근거를 남긴다. */
+    private fun recomputePersonality(d: CarlingData): CarlingData {
+        val result = personalityOf(d)
+        if (result.personality == d.personality) return d
+        // 같은 분위기 안에서 시간대만 바뀐 것은 보이는 변화가 없어 조용히 바꾼다
+        if (result.personality.copy(body = d.personality.body) == d.personality) return d.copy(personality = result.personality)
+        val id = (d.snapshots.maxOfOrNull { it.id } ?: 0) + 1
+        val snap = PersonalitySnapshot(
+            id = id,
+            createdAt = clock.now(),
+            tripIds = result.used,
+            bucketCounts = result.bucketCounts,
+            purposeCounts = result.purposeCounts,
+            avgScore = result.avgScore,
+            before = d.personality,
+            after = result.personality,
+            line = changeLine(d.personality, result),
+        )
+        return d.copy(personality = result.personality, snapshots = (d.snapshots + snap).takeLast(30), unseenPersonality = id).log("personality_changed")
+    }
+
+    fun personalityOf(d: CarlingData = data): PersonalityResult {
+        val inputs = d.rewards.keys.mapNotNull { id -> d.trip(id) }.sortedBy { it.startedAt }.map { t ->
+            PersonalityInput(t.tripId, TimeBucket.of(clock.hourOf(t.startedAt)), d.card(t.tripId)?.purpose, t.score)
+        }
+        return PersonalityRules.compute(inputs)
+    }
+
+    private fun changeLine(before: Personality, r: PersonalityResult): String {
+        val after = r.personality
+        val parts = mutableListOf<String>()
+        if (before.vibe != after.vibe) parts += after.vibe?.let { "${it.eyewear.eulReul()} 했어요 · ${r.bodyReason()}" } ?: "장비를 내려놓았어요"
+        if (before.decoration != after.decoration) {
+            parts += after.decorationItem?.let { "${it.label.eulReul()} 달았어요 · ${r.decorationReason()}" } ?: "장식을 내려놓았어요"
+        }
+        if (before.heartBright != after.heartBright) parts += if (after.heartBright) "심장이 선명하게 반짝여요 · ${r.heartReason()}" else "심장빛이 기본으로 돌아왔어요"
+        return parts.joinToString("\n")
+    }
+
+    /** 럭키박스 열기. 내용은 상자 생성 때 정해져 있다. 자동차 꾸미기는 '바로 장착'을 고를 때 단다. */
+    fun openBox(boxId: Int) {
+        if (data.boxes.none { it.boxId == boxId && it.openedAt == null }) return
+        update(sync = true) { updateStage(openIn(it, boxId, fillEmpty = false)) }
+    }
+
+    /** 모두 받기: 열지 않은 상자를 한 번에 연다. 새 자동차 꾸미기는 비어 있는 자리에만 바로 단다. */
+    fun openAll(): List<LuckyBox> {
+        val boxes = data.unopenedBoxes
+        if (boxes.isEmpty()) return emptyList()
+        update(sync = true) { d -> updateStage(boxes.fold(d) { acc, b -> openIn(acc, b.boxId, fillEmpty = true) }) }
+        return boxes
+    }
+
+    private fun openIn(d: CarlingData, boxId: Int, fillEmpty: Boolean): CarlingData {
+        val box = d.boxes.firstOrNull { it.boxId == boxId && it.openedAt == null } ?: return d
+        val part = box.part
+        val isNew = part != null && (d.parts[part] ?: 0) == 0
+        val equipped = if (fillEmpty && isNew && part != null && part.slot !in d.equipped) d.equipped + (part.slot to part) else d.equipped
+        val badges = box.badge?.let { d.badges + (it to (d.badges[it] ?: 0) + 1) } ?: d.badges
+        // 배지 6종을 처음 다 모으면 오로라 차체 색
+        val set = work.integro.carling.game.BadgeRules.SET_REWARD
+        val completesSet = badges.keys.containsAll(work.integro.carling.game.Badge.entries) && (d.colors[set] ?: 0) == 0
+        val colors0 = box.color?.let { d.colors + (it to (d.colors[it] ?: 0) + 1) } ?: d.colors
+        val dup = (box.badge != null && (d.badges[box.badge] ?: 0) > 0) || (part != null && !isNew) || (box.color != null && (d.colors[box.color] ?: 0) > 0)
+        return withStyle(
+            d.copy(
+                boxes = d.boxes.map { if (it.boxId == boxId) it.copy(openedAt = clock.now()) else it },
+                totalGp = d.totalGp + box.bonusGp,
+                jelly = d.jelly + box.bonusGp + if (dup) JellyRules.DUPLICATE else 0,
+                badges = badges,
+                unseenSetReward = d.unseenSetReward || completesSet,
+                parts = part?.let { d.parts + (it to (d.parts[it] ?: 0) + 1) } ?: d.parts,
+                colors = if (completesSet) colors0 + (set to 1) else colors0,
+                equipped = equipped,
+            ).log("box_opened", box.tripId),
+        )
+    }
+
+    /** 자동차 꾸미기를 그 자리에 단다(같은 자리의 아이템은 바뀐다). 가진 것만. */
+    fun equip(part: CarPart) {
+        if ((data.parts[part] ?: 0) == 0) return
+        update { withStyle(it.copy(equipped = it.equipped + (part.slot to part))).log("part_equipped") }
+    }
+
+    /** 차체 색을 칠한다. 펄 화이트는 언제나 칠할 수 있고, 나머지는 모은 색만. */
+    fun paint(color: CarColor) {
+        if (color != CarColor.PEARL && (data.colors[color] ?: 0) == 0) return
+        update { it.copy(carColor = if (color == CarColor.PEARL) null else color).log("car_painted") }
+    }
+
+    /** 모습 고르기: 아기링~지금 단계 중 하나. 지금 단계를 고르면 기본으로 돌아간다. */
+    fun chooseLook(s: Stage) {
+        if (!data.canChooseLook || s.ordinal !in Stage.BABY.ordinal..data.stage.ordinal) return
+        update { it.copy(look = if (s == it.stage) null else s).log("look_changed") }
+    }
+
+    /** 위치(동네) 사용 동의. 끄면 지금까지 남긴 동네 기록도 지운다. */
+    fun setLocationConsent(allowed: Boolean) = update(sync = true) { d ->
+        if (allowed) d.copy(locationConsent = true).log("location_on")
+        else d.copy(locationConsent = false, trips = d.trips.map { it.copy(startDong = null, endDong = null) }).log("location_off")
+    }
+
+    /** 출발·도착 동네를 남긴다(동의했을 때만). */
+    fun recordPlace(tripId: Long, start: String? = null, end: String? = null) {
+        if (data.locationConsent != true) return
+        val t = data.trip(tripId) ?: return
+        update { it.replaceTrip(t.copy(startDong = start ?: t.startDong, endDong = end ?: t.endDong)) }
+    }
+
+    /** 주행 한마디를 했다(성장 리포트에서 센다). */
+    fun logTalk(t: work.integro.carling.game.Talk) = update { it.copy(talks = it.talks + (t to (it.talks[t] ?: 0) + 1)).log("talk_${t.name.lowercase()}") }
+
+    /** 레벨업 축하를 봤다. 오른 레벨마다 젤리 50. */
+    fun seenLevel() = update { d ->
+        val now = LevelRules.of(d.totalGp)
+        if (now <= d.levelSeen) d else d.copy(levelSeen = now, jelly = d.jelly + (now - d.levelSeen) * JellyRules.LEVEL_UP).log("level_up")
+    }
+
+    /** 홈에서 보일 방향(360° 보기에서 고른 것). null이면 기본 그림. */
+    fun setHomeAngle(step: Int?) = update { it.copy(homeAngle = step?.let { s -> ((s % 8) + 8) % 8 }) }
+
+    /** 상점에서 산다. 젤리가 모자라거나 이미 가졌으면(테마) 아무것도 하지 않고 false. */
+    fun buy(item: ShopItem): Boolean {
+        val d = data
+        if (d.jelly < item.price) return false
+        if (item is ShopItem.Theme && item.bucket in d.themes) return false
+        update(sync = true) { x ->
+            val paid = x.copy(jelly = x.jelly - item.price)
+            when (item) {
+                is ShopItem.Part -> withStyle(paid.copy(parts = paid.parts + (item.part to (paid.parts[item.part] ?: 0) + 1)))
+                is ShopItem.Paint -> paid.copy(colors = paid.colors + (item.color to (paid.colors[item.color] ?: 0) + 1))
+                is ShopItem.Theme -> paid.copy(themes = paid.themes + item.bucket, theme = item.bucket)
+            }.log("shop_${item.key}")
+        }
+        return true
+    }
+
+    /** 배경 테마를 쓴다(null이면 시간대에 따라 자동). 산 것만. */
+    fun useTheme(b: work.integro.carling.game.TimeBucket?) {
+        if (b != null && b !in data.themes) return
+        update { it.copy(theme = b) }
+    }
+
+    /** 생활반경 혜택 켜기/끄기(따로 받는 선택 동의). */
+    fun setBenefitConsent(on: Boolean) = update { it.copy(benefitConsent = on).log(if (on) "benefit_on" else "benefit_off") }
+
+    /** 혜택 카드를 닫는다: 30일 동안 다시 보이지 않는다. */
+    fun snoozeBenefit(id: String) = update { it.copy(benefitSnoozed = it.benefitSnoozed + (id to clock.now())).log("benefit_dismissed") }
+
+    /** 혜택을 열어 봤다(지표). */
+    fun logBenefit(type: String) = update { it.log(type) }
+
+    /** 배지 세트 보상 안내를 봤다. */
+    fun seenSetReward() = update { it.copy(unseenSetReward = false) }
+
+    /** 내 카링의 '차 타기 / 차 내리기'. 홈에서도 그 모습으로 보인다. */
+    fun setRiding(on: Boolean) = update { it.copy(riding = on) }
+
+    fun setCabinTone(t: work.integro.carling.game.CabinTone) = update { it.copy(cabinTone = t) }
+
+    fun setCabin(view: work.integro.carling.game.CabinView) = update { it.copy(cabin = view) }
+
+    /** 그 자리의 아이템을 뗀다. */
+    fun unequip(slot: CarSlot) = update { it.copy(equipped = it.equipped - slot) }
+
+    /** 내 카링 '모두 해제': 꾸미기와 차체 색을 모두 뗀다. */
+    fun unequipAll() = update { it.copy(equipped = emptyMap(), carColor = null).log("unequipped_all") }
+
+    /** 대표 배지(가진 것만). null이면 내린다. */
+    fun setDisplayBadge(b: Badge?) {
+        if (b != null && (data.badges[b] ?: 0) == 0) return
+        update { it.copy(displayBadge = b) }
+    }
+
+    /** 장착 스타일이 완성되면 기록해 둔다. */
+    private fun withStyle(d: CarlingData): CarlingData {
+        val style = d.style ?: return d
+        return if (style in d.styles) d else d.copy(styles = d.styles + style).log("style_completed")
+    }
+
+    /** 이 운행이 확정되면 받을 성장 포인트(완성 직후 예고용). */
+    fun expectedGp(tripId: Long): Int = data.trip(tripId)?.let { Rules.growthPoints(it.distanceKm, it.movingSec) } ?: 0
+
+    fun ackStage() = update { it.copy(unseenStage = null) }
+    fun ackPersonality() = update { it.copy(unseenPersonality = null) }
+    fun consent() = update { it.copy(consented = true).log("consented") }
+    fun giveName(value: String) = update { it.copy(name = value.trim().take(10).ifEmpty { null }) }
+    fun toggleVoice() = update { it.copy(voiceOn = !it.voiceOn) }
+    fun logOpen(type: String) = update { it.log(type) }
+
+    // ---- 개발자 도구 ----
+
+    fun devReset() {
         clock.reset()
-        routeTracks = emptyMap()
-        data = CarlingData()
+        update(sync = true) { CarlingData(karingId = UUID.randomUUID().toString(), consented = true, voiceOn = it.voiceOn) }
+    }
+
+    /** 시연 준비: 쌓인 상자를 모두 열고, 단계·개성·레벨·세트 축하 창을 이미 본 것으로 둔다. */
+    fun devTidy() {
+        openAll()
+        update(sync = true) { d -> d.copy(unseenStage = null, unseenPersonality = null, unseenSetReward = false, unseenCards = emptyList(), levelSeen = LevelRules.of(d.totalGp)) }
+    }
+
+    /** 시연용 충전 기록: 지난 [days]일 동안 [every]일마다 한 번. */
+    fun devRefuels(days: Int = 30, every: Int = 5) = update(sync = true) { d ->
+        val now = clock.now()
+        val list = (1..days / every).map { i -> Refuel(now - (i * every - 1) * Rules.DAY_MILLIS - 7 * Rules.HOUR_MILLIS, true, 18 + (i * 7) % 15, 80 + (i * 3) % 15, simulated = true) }
+        d.copy(refuels = (d.refuels.filter { !it.simulated } + list).sortedBy { it.at })
+    }
+
+    /** 자동차 꾸미기가 든 럭키박스 [n]개(아직 없는 것부터). 시연용. */
+    /** 시연용 젤리. */
+    fun devAddJelly(n: Int) = update { it.copy(jelly = it.jelly + n) }
+
+    /** 아직 없는 배지가 든 상자 [n]개(시연용: 진열장·세트 보상 확인). */
+    fun devBadgeBoxes(n: Int = 6) = update(sync = true) { d ->
+        val missing = Badge.entries.filter { (d.badges[it] ?: 0) == 0 }.ifEmpty { Badge.entries }
+        val start = (d.boxes.maxOfOrNull { it.boxId } ?: 0) + 1
+        d.copy(boxes = d.boxes + List(n) { i -> LuckyBox(start + i, -1L, 10 + i * 2, missing[i % missing.size], null, clock.now()) })
+    }
+
+    fun devPartBoxes(n: Int = 6) = update(sync = true) { d ->
+        val missing = CarPart.entries.filter { (d.parts[it] ?: 0) == 0 }.ifEmpty { CarPart.entries }
+        val start = (d.boxes.maxOfOrNull { it.boxId } ?: 0) + 1
+        val now = clock.now()
+        val colors = CarColor.collectible.filter { (d.colors[it] ?: 0) == 0 }.ifEmpty { CarColor.collectible }
+        d.copy(boxes = d.boxes + List(n) { i ->
+            if (i % 2 == 1) LuckyBox(start + i, -1L, 10 + i * 3, null, null, now, color = colors[(i / 2) % colors.size])
+            else LuckyBox(start + i, -1L, 10 + i * 3, null, missing[(i * 5) % missing.size], now)
+        })
+    }
+
+    fun devAddGp(gp: Int) = update(sync = true) { d -> updateStage(d.copy(totalGp = d.totalGp + gp, rewards = if (d.rewards.isEmpty()) mapOf(-1L to Reward(clock.now(), 0, null)) else d.rewards)) }
+
+    /** 과거의 운행 하나를 확정 상태로 넣는다. [purpose]가 있으면 완성까지 해서 보상이 지급된다. */
+    fun devPastTrip(startAt: Long, km: Float, movingMin: Int, harsh: Int, purpose: TripPurpose?, companion: work.integro.carling.game.Companion? = null, from: String? = null, to: String? = null) {
+        if (data.trip(startAt) != null) return
+        val park = startAt + movingMin * Rules.MINUTE_MILLIS
+        // 시연용 전비: 출퇴근은 좋고, 짧은 업무·밤 운행은 조금 낮게, 급조작이 많으면 더 낮게
+        val eff = (5.8f - (if (km < 15f) 0.5f else 0f) - harsh.coerceAtMost(4) * 0.25f + ((startAt / 7919) % 7) * 0.08f).coerceAtLeast(3.2f)
+        val record = TripRecord(startAt, TripStatus.CONFIRMED, startAt, lastParkAt = park, confirmedAt = park + Rules.STOP_MERGE_MILLIS, lastSnapshotAt = park, distanceKm = km, movingSec = movingMin * 60L, harsh = harsh, simulated = true, ev = true, efficiency = eff, startDong = from, endDong = to)
+        update(sync = true) { d ->
+            val number = (d.cards.maxOfOrNull { it.number } ?: 0) + 1
+            val card = TripCard(startAt, number, createdAt = park, state = if (purpose != null) CardState.COMPLETED else CardState.DRAFT, completedAt = if (purpose != null) park else null, purpose = purpose, companion = companion)
+            val withTrip = d.copy(trips = (d.trips + record).sortedBy { it.startedAt }.takeLast(MAX_TRIPS))
+            val withCard = if (Rules.meetsCardMinimum(km, movingMin * 60L, Rules.REAL_CARD_MIN_KM, Rules.REAL_CARD_MIN_MOVING_SEC)) withTrip.copy(cards = (withTrip.cards + card).takeLast(MAX_TRIPS)) else withTrip
+            grant(withCard, startAt)
+        }
     }
 
     private companion object {
-        const val KEY_DATA = "data"
-        const val KEY_TRACKS = "tracks"
+        const val MAX_TRIPS = 3000
+        const val MAX_TAGS = 12
+        const val MAX_EVENTS = 400
+    }
+}
+
+/** 상태 문자열 하나를 읽고 쓰는 저장소. */
+interface Storage {
+    fun read(): String?
+    fun write(value: String, sync: Boolean)
+}
+
+/** 기기 안 SharedPreferences. */
+class PrefsStorage(context: Context) : Storage {
+    private val prefs = context.getSharedPreferences("carling", Context.MODE_PRIVATE)
+
+    init {
+        // 카링월드(방 꾸미기) 시절 저장값은 새 규칙과 맞지 않아 지운다
+        LEGACY_KEYS.forEach { key -> if (prefs.contains(key)) prefs.edit().remove(key).apply() }
+    }
+
+    override fun read(): String? = prefs.getString(KEY_DATA, null)
+
+    override fun write(value: String, sync: Boolean) {
+        val edit = prefs.edit().putString(KEY_DATA, value)
+        if (sync) edit.commit() else edit.apply()
+    }
+
+    private companion object {
+        const val KEY_DATA = "mycarling_v1"
+        val LEGACY_KEYS = listOf("data", "tracks", "world_v1")
     }
 }
