@@ -84,9 +84,12 @@ dependencies {
     testImplementation(libs.junit)
 }
 
-// 공모전 제출용: apk/팀명_CARLING_release.apk 로 복사.  ./gradlew submissionApk -PteamName=우리팀
+// 공모전 제출용: apk/팀명_앱이름_release.apk 로 복사 (기본 TeamCarling_MyCarling_release.apk).
+// 다른 이름: ./gradlew submissionApk -PteamName=팀명 -PappName=앱이름
 tasks.register<Copy>("submissionApk") {
-    val fileName = providers.gradleProperty("teamName").orElse("TEAM").map { "${it}_CARLING_release.apk" }
+    val team = providers.gradleProperty("teamName").orElse("TeamCarling")
+    val app = providers.gradleProperty("appName").orElse("MyCarling")
+    val fileName = team.zip(app) { t, a -> "${t}_${a}_release.apk" }
     dependsOn("assembleRelease")
     from(layout.buildDirectory.file("outputs/apk/release/app-release.apk"))
     into(rootProject.layout.projectDirectory.dir("apk"))
