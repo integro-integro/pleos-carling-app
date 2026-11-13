@@ -5,27 +5,20 @@
         android:name="android.hardware.type.automotive"
         android:required="true" />
 
-    <!-- Vehicle SDK: 기어(Gear) 조회 -->
+    <!-- Vehicle SDK: 기어(Gear)·누적 주행거리 조회 -->
     <uses-permission android:name="pleos.car.permission.CAR_DRIVE" />
-    <!-- Vehicle SDK: 충전구·배터리(EvBattery) 조회 -->
-    <uses-permission android:name="pleos.car.permission.CAR_ENERGY" />
-    <!-- NaviHelper SDK: 현재 위치·목적지 정보 조회 (get*Info) -->
-    <uses-permission android:name="pleos.car.permission.NAVI_ROUTE" />
-    <!-- AAOS 차속 (부드러운 운전 칭찬). 런타임 권한 -->
+    <uses-permission android:name="pleos.car.permission.CAR_INFO" />
+    <!-- TextToSpeech SDK: 음성 한마디 -->
+    <uses-permission android:name="pleos.car.permission.TTS_SERVICE" />
+    <!-- FusedLocation SDK: 출발·도착 동네(행정동)만 판정. 좌표·경로는 저장하지 않는다. 런타임 권한 -->
+    <uses-permission android:name="pleos.car.permission.FUSED_LOCATION" />
+    <!-- AAOS 차속 (실제 이동시간·급조작 판정). 런타임 권한 -->
     <uses-permission android:name="android.car.permission.CAR_SPEED" />
-    <!-- 하루 첫 운전의 날씨 인사 -->
-    <uses-permission android:name="android.permission.INTERNET" />
     <!-- 시동(부팅) 때 앱을 깨워 화면을 열지 않아도 주행을 기록 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.TTS_SERVICE" />
-        </intent>
-    </queries>
 
     <application
         android:name=".CarlingApplication"

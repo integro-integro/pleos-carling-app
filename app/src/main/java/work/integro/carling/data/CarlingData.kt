@@ -1,222 +1,235 @@
 package work.integro.carling.data
 
 import kotlinx.serialization.Serializable
-import work.integro.carling.game.CarlingItem
-import work.integro.carling.game.GrowthRules
-import work.integro.carling.game.Light
-import work.integro.carling.game.Lineage
-import work.integro.carling.game.Region
-import java.time.LocalDate
-import java.time.temporal.ChronoUnit
+import work.integro.carling.game.Badge
+import work.integro.carling.game.CabinView
+import work.integro.carling.game.CarColor
+import work.integro.carling.game.CarPart
+import work.integro.carling.game.CarSlot
+import work.integro.carling.game.CarStyle
+import work.integro.carling.game.CardClock
+import work.integro.carling.game.CardState
+import work.integro.carling.game.Personality
+import work.integro.carling.game.Stage
+import work.integro.carling.game.TimeBucket
+import work.integro.carling.game.TripPurpose
+import work.integro.carling.game.TripStatus
 
-/** 기기에 저장되는 카링의 모든 상태. 정밀 위치는 저장하지 않는다(격자 해시만). */
+/**
+ * 기기 안에 저장되는 마이카링의 모든 상태. 서버는 없다. 경로·위치는 저장하지 않는다.
+ * 운행(TripRecord), 카드(TripCard), 보상 원장(rewards)을 분리한다(PRD 5장).
+ * 리포트의 운행 숫자는 확정된 운행만, 성장·개성은 보상이 지급된 운행만 읽는다.
+ */
 @Serializable
 data class CarlingData(
-    val hatched: Boolean = false,
-    val personality: Personality? = null,
+    val karingId: String = "",
     val name: String? = null,
-    val birthDate: String? = null,
-
-    // 첫 만남(v1)
-    val firstTripDone: Boolean = false,
-    val firstPetDone: Boolean = false,
-    val firstTripMinutes: Int = 0,
-    val firstTripDistanceKm: Float? = null,
-    val firstTripSafety: Int = 0,
-    val firstTripPlaceName: String? = null,
-
-    // (구) 첫 5분 질문 — v1에서는 쓰지 않지만 과거 저장 호환을 위해 남김
-    val routine: Routine? = null,
-    val usualLight: Light? = null,
-    val guideSeen: Boolean = false,
+    /** 수집 항목 안내와 동의. */
+    val consented: Boolean = false,
+    /** 위치(동네) 사용 동의. null이면 아직 묻지 않았다. */
     val locationConsent: Boolean? = null,
-    /** 사용자가 읽고 동의한 위치 안내의 판. 2부터 날씨 서비스 전송이 안내에 들어 있다. */
-    val locationConsentVersion: Int = 0,
-    /** 날씨 인사를 마지막으로 한 날. */
-    val weatherGreetDate: String? = null,
-
-    /** 진행 중인 주행. 주행 도중 프로세스가 정리돼도 이어서 기록하기 위해 저장한다. */
-    val activeTrip: ActiveTrip? = null,
-
-    // ---- 성장 엔진(v1): XP(성장 에너지) + MP(지도 포인트), 서로 환산하지 않음 ----
-    // 누적값 — 지난 날들에서 확정된 합계. 오늘치는 아래 집계로 더한다. 성장하면 새 단계 시작값을 넘는 만큼 버린다.
-    val totalXpPastDays: Int = 0,
-    val totalMpPastDays: Int = 0,
-    // 오늘 XP 집계 (날이 바뀌면 past로 접고 리셋)
-    val xpDate: String? = null,
-    val tripsToday: Int = 0,
-    val safeTripsToday: Int = 0,
-    val fuelXpGiven: Boolean = false,
-    val intimacyActionsToday: Set<String> = emptySet(), // PET/FEED/PLAY/TALK
-    // 오늘 MP 집계
-    val mpDate: String? = null,
-    val mpTodayValue: Int = 0,
-
-    // 계열 — D14에 결정, D30(진화1)에서 확정. 누적 점수로 판정.
-    val lineageScores: Map<Lineage, Float> = emptyMap(),
-    val lineage: Lineage? = null,
-
-    // 진화카드 · 특별 퀘스트
-    val ownedCards: Set<Int> = emptySet(),    // 획득한 진화 단계(1/2/3)
-    val cardFails: Map<Int, Int> = emptyMap(), // 단계별 추첨 실패 누적
-    val cardDrawDate: String? = null,          // 오늘 이미 추첨했는지
-    val doneQuests: Set<Int> = emptySet(),     // 완료한 진화 퀘스트
-
-    val reachedStage: Int = 0, // 마지막으로 계산된 단계 인덱스(0 = 아기)
-    /** 변화 장면을 마지막으로 보여준 단계. null이면 아직 기준이 없어 장면 없이 현재 단계로 맞춘다. */
-    val celebratedStage: Int? = null,
-
-    // 통계
-    val togetherDays: Set<String> = emptySet(),
-    val tripCount: Int = 0,
-    val totalMinutes: Int = 0,
-    val lightMinutes: Map<Light, Int> = emptyMap(),
-    val lightTrips: Map<Light, Int> = emptyMap(),
-    val placeCells: Set<String> = emptySet(),
-    val newPlaces: Int = 0,
-    val revisits: Int = 0,
-
-    // 돌보기(케어) 수치 — 성장과 별개
-    val intimacy: Int = 0,
-    val fullness: Int = 60,
-    val lastDecayDate: String? = null,
-    val lastGreetDate: String? = null,
-    val lastFeedDate: String? = null,
-    val petDate: String? = null,
-    val petsToday: Int = 0,
-
-    // 꾸미기·트립카드
-    val equippedItem: CarlingItem? = null,
-    /** 가지고 있는 지역 특산물 개수. */
-    val foods: Map<Region, Int> = emptyMap(),
-    /** 지역별 마지막으로 특산물을 받은 날. 지역마다 하루 1개만 받는다. */
-    val foodGiftDates: Map<Region, String> = emptyMap(),
-    /** 성장 1의 '아이템이 열렸어요' 안내를 봤는지. */
-    val itemIntroSeen: Boolean = false,
-    /** Drive Log — 모든 트립. 트립카드 화면은 여기서 목적지별 최근 20곳을 골라 보여준다. */
-    val tripCards: List<TripCard> = emptyList(),
-    /** 지도에 켜진 길. 양 끝은 약 1km 단위로 어림하고, 이 기기에만 저장한다. */
-    val mapRoutes: List<MapRoute> = emptyList(),
-    /** 새 길 알림을 아직 보여주지 않았는지. */
-    val pendingMapNotice: Boolean = false,
-    /** 주차 후 아직 확인하지 않은 새 트립카드의 번호. */
-    val pendingCard: Int? = null,
-
-    // 설정
     val voiceOn: Boolean = true,
-    val scene: Scene = Scene.CLEAR_SKY,
+
+    /** 모든 운행(기록 중·주차됨·확정). 카드 만료와 관계없이 남는다. */
+    val trips: List<TripRecord> = emptyList(),
+    /** 최소 기준을 넘은 운행에만 1장. 키는 운행 ID. */
+    val cards: List<TripCard> = emptyList(),
+    /** 보상 원장. 운행 ID가 있으면 이미 지급했다(같은 운행에 두 번 지급하지 않는 근거). */
+    val rewards: Map<Long, Reward> = emptyMap(),
+    val boxes: List<LuckyBox> = emptyList(),
+    /** 날짜별 지급한 럭키박스 수(하루 최대 5개). */
+    val dailyBoxes: Map<String, Int> = emptyMap(),
+
+    // ---- 카링 ----
+    val totalGp: Int = 0,
+    val stage: Stage = Stage.EGG,
+    val personality: Personality = Personality(),
+    val snapshots: List<PersonalitySnapshot> = emptyList(),
+    val stageHistory: List<StageChange> = emptyList(),
+    val badges: Map<Badge, Int> = emptyMap(),
+    /** 모은 자동차 꾸미기(개수). 이전 이모지 스티커 8종(carItems)은 버린다. */
+    val parts: Map<CarPart, Int> = emptyMap(),
+    /** 자리마다 달린 아이템. */
+    val equipped: Map<CarSlot, CarPart> = emptyMap(),
+    /** 모은 차체 색(개수). 펄 화이트는 처음부터 가진다. */
+    val colors: Map<CarColor, Int> = emptyMap(),
+    /** 지금 칠한 차체 색. null이면 펄 화이트. */
+    val carColor: CarColor? = null,
+    /** 고른 모습(꼬마링 이상이 되면 지나온 모습 중에서 고를 수 있다). null이면 지금 단계. */
+    val look: Stage? = null,
+    /** 카링 탭 배경 구도. */
+    val cabin: CabinView = CabinView.DASH,
+    /** 한 번이라도 완성한 장착 스타일(배지처럼 남는다). */
+    val styles: Set<CarStyle> = emptySet(),
+
+    // ---- 보여주기 ----
+    /** 주차 후 아직 안내하지 않은 카드(운행 ID). */
+    val unseenCards: List<Long> = emptyList(),
+    /** 아직 보여주지 않은 단계 변화. */
+    val unseenStage: Stage? = null,
+    /** 아직 보여주지 않은 개성 변화(스냅샷 ID). */
+    val unseenPersonality: Int? = null,
+    val customTags: List<String> = emptyList(),
+    /** '기타'에 직접 적은 목적(최근 것 뒤로). */
+    val customPurposes: List<String> = emptyList(),
+    /** 절약 금액 계산 단가(원): 전기 kWh당, 연료 L당. */
+    val kwhPrice: Int = work.integro.carling.game.ImprovementRules.DEFAULT_KWH_PRICE,
+    val fuelPrice: Int = work.integro.carling.game.ImprovementRules.DEFAULT_FUEL_PRICE,
+    /** 운행일지를 받을 메일 주소. 이 차 안에만 저장한다. */
+    val logEmail: String? = null,
+    /** 배지 6종을 다 모아 오로라 색을 받았다는 안내를 아직 안 봤다. */
+    val unseenSetReward: Boolean = false,
+    /** 내 카링에서 고른 대표 배지(홈 상태표에 보인다). */
+    val displayBadge: work.integro.carling.game.Badge? = null,
+    /** 주행 한마디를 한 횟수. */
+    val talks: Map<work.integro.carling.game.Talk, Int> = emptyMap(),
+    /** 상점 재화 젤리. [jellyStarted]가 false면 불러올 때 지난 기록으로 한 번 채운다. */
+    val jelly: Int = 0,
+    val jellyStarted: Boolean = false,
+    /** 축하를 본 레벨. 0이면 아직 정하지 않았다(불러올 때 지금 레벨로). */
+    val levelSeen: Int = 0,
+    /** 차에 타 있는지(내 카링에서 '차 내리기'면 false). 홈에도 그대로 보인다. */
+    val riding: Boolean = true,
+    /** 차 안 배경 톤. 11/13 사용자 선택: A 차분한 뉴트럴. */
+    val cabinTone: work.integro.carling.game.CabinTone = work.integro.carling.game.CabinTone.CALM,
+    /** 달이 꽉 차면 한 번 만들어 저장하는 월간 리포트(11/13 사용자 결정). */
+    val monthReports: List<MonthReport> = emptyList(),
+    /** 새로 만들어져 아직 '짜잔' 알림을 보지 않은 리포트의 달("2026-11"). */
+    val unseenMonthReport: String? = null,
+    /** 360° 보기에서 고른 홈 방향(0~7, 45도마다). null이면 기본 그림. */
+    val homeAngle: Int? = null,
+    /** 상점에서 산 배경 테마(시간대 고정)와 지금 쓰는 테마. */
+    val themes: Set<work.integro.carling.game.TimeBucket> = emptySet(),
+    val theme: work.integro.carling.game.TimeBucket? = null,
+    /** 생활반경 혜택 선택 동의(4.15). null이면 아직 묻지 않았다. 위치 동의와 따로. */
+    val benefitConsent: Boolean? = null,
+    /** 닫은 혜택과 닫은 시각(30일 숨김). */
+    val benefitSnoozed: Map<String, Long> = emptyMap(),
+    val events: List<EventLog> = emptyList(),
+    /** 주유·충전 기록(출발할 때 남은 양이 직전 주차보다 크게 늘어난 경우). */
+    val refuels: List<Refuel> = emptyList(),
 ) {
-    /** 오늘 쌓은 XP(상한 50은 항목별 상한으로 자연 충족). */
-    val xpToday: Int
-        get() = GrowthRules.driveXp(tripsToday, safeTripsToday) +
-            (if (fuelXpGiven) GrowthRules.FUEL_XP else 0) +
-            GrowthRules.intimacyXp(intimacyActionsToday.size)
-
-    val totalXp: Int get() = totalXpPastDays + xpToday
-    val totalMp: Int get() = totalMpPastDays + mpTodayValue
-
-    fun dayNumber(today: LocalDate): Int =
-        birthDate?.let { ChronoUnit.DAYS.between(LocalDate.parse(it), today).toInt() + 1 } ?: 1
-
-    fun stageIndexOn(today: LocalDate): Int =
-        GrowthRules.stageIndex(dayNumber(today), totalXp, totalMp, ownedCards, doneQuests)
-
-    /** 위치를 쓰도록 동의했지만 날씨 전송 안내를 아직 보지 못했는지. */
-    val needsLocationReconsent: Boolean
-        get() = locationConsent == true && locationConsentVersion < CURRENT_LOCATION_CONSENT
-
-    val stageSpec get() = GrowthRules.STAGES[reachedStage.coerceIn(0, GrowthRules.MAX_STAGE)]
+    val current: TripRecord? get() = trips.lastOrNull { it.status != TripStatus.CONFIRMED }
+    fun trip(id: Long): TripRecord? = trips.firstOrNull { it.tripId == id }
+    fun card(id: Long): TripCard? = cards.firstOrNull { it.tripId == id }
+    val draftCards: List<TripCard> get() = cards.filter { it.state == CardState.DRAFT }
+    val unopenedBoxes: List<LuckyBox> get() = boxes.filter { it.openedAt == null }
+    val nextStageGp: Int? get() = stage.next?.minGp
+    val style: CarStyle? get() = CarStyle.of(equipped)
+    /** 화면에 보이는 모습: 고른 모습이 지금 단계 이하이고 아기링 이상이면 그 모습. */
+    val shownStage: Stage get() = look?.takeIf { stage.ordinal >= Stage.BREEZE.ordinal && it.ordinal in Stage.BABY.ordinal..stage.ordinal } ?: stage
+    /** 모습을 고를 수 있는지(꼬마링 이상). */
+    val canChooseLook: Boolean get() = stage.ordinal >= Stage.BREEZE.ordinal
 }
 
-/** 4부터 달린 경로를 기기에 저장한다는 안내가 들어 있다. */
-const val CURRENT_LOCATION_CONSENT = 4
-
-/** 트립카드 화면에 보여주는 목적지 수. 내비의 최근 목적지와 같다. */
-const val RECENT_DESTINATIONS = 20
-
-/** 고를 수 있는 배경. 낮과 밤은 시계를 따른다. */
+/** 운행 하나. 병합돼도 ID(첫 출발 시각)는 유지된다. */
 @Serializable
-enum class Scene(val label: String) {
-    CITY("도시"),
-    COAST("바닷가 해안"),
-    CLEAR_SKY("맑은 하늘"),
-    FOREST("고요한 숲"),
-}
-
-/** 첫 만남 질문(구). */
-@Serializable
-enum class Routine(val label: String, val reply: String) {
-    COMMUTE("출퇴근길", "매일 같은 길이라도, 같이 달리면 매일 달라 보일 거예요."),
-    FAMILY("등하원·장보기", "가족이랑 같이 다니는 길이네요. 저도 끼워줘요!"),
-    TRAVEL("여행길", "어디로 가든 처음 보는 풍경을 같이 보고 싶어요!"),
-    WORK("업무·외근", "바쁜 날에도 잠깐씩 같이 있을게요."),
-}
-
-@Serializable
-data class ActiveTrip(
-    val startMillis: Long,
-    val startOdometerKm: Float?,
-    val startLat: Double? = null,
-    val startLng: Double? = null,
-)
-
-/** 지도에 켜진 길 하나. 출발지가 없으면 도착지를 지나는 고리 길로 그린다. */
-@Serializable
-data class MapRoute(
-    val toLat: Double,
-    val toLng: Double,
-    val fromLat: Double? = null,
-    val fromLng: Double? = null,
-    val date: String = "",
-    val name: String? = null,
+data class TripRecord(
+    val tripId: Long,
+    val status: TripStatus,
+    val startedAt: Long,
+    /** 마지막 P 전환 시각. 5분 판정의 기준. */
+    val lastParkAt: Long? = null,
+    val confirmedAt: Long? = null,
+    val lastSnapshotAt: Long = startedAt,
+    val startOdometerKm: Float? = null,
     val distanceKm: Float? = null,
-    /** 이 길을 달린 횟수. 많을수록 지도에서 더 밝다. */
-    val visits: Int = 1,
-    /** 실제 경로가 저장된 열쇠. 경로를 기록하지 못했으면 null이고 길 모양을 지어낸다. */
-    val trackKey: String? = null,
+    val movingSec: Long? = null,
+    val harsh: Int? = null,
+    val simulated: Boolean = false,
+    /** 전기차인지(에너지 값을 받았을 때). null이면 모름. */
+    val ev: Boolean? = null,
+    /** 출발·주차 때 남은 양(%)과 EV 배터리(Wh). */
+    val startPercent: Int? = null,
+    val endPercent: Int? = null,
+    val startWh: Float? = null,
+    val endWh: Float? = null,
+    /** 이 운행의 효율: 전기차 km/kWh, 내연기관차 km/L. 차량 값이 없으면 배터리 사용량으로 계산. 모르면 null. */
+    val efficiency: Float? = null,
+    /** 출발·도착 동네(행정동 코드 7자리). 위치 동의했을 때만 남기고, 좌표·경로는 저장하지 않는다. */
+    val startDong: String? = null,
+    val endDong: String? = null,
 ) {
-    fun connects(aLat: Double, aLng: Double, bLat: Double, bLng: Double): Boolean =
-        (fromLat == aLat && fromLng == aLng && toLat == bLat && toLng == bLng) ||
-            (fromLat == bLat && fromLng == bLng && toLat == aLat && toLng == aLng)
+    /** 경과시간: 출발부터 마지막 주차까지(병합 구간의 정차 포함). */
+    val elapsedSec: Long get() = ((lastParkAt ?: lastSnapshotAt) - startedAt).coerceAtLeast(0) / 1000
+    val endAt: Long get() = lastParkAt ?: lastSnapshotAt
+    val score: Int? get() = work.integro.carling.game.Rules.drivingScore(harsh, distanceKm)
 }
 
-/** 목적지별 최근 카드. 같은 목적지를 다시 가면 맨 위로 올라가고, [limit]곳까지만 남긴다. */
-fun List<TripCard>.recentDestinations(limit: Int = RECENT_DESTINATIONS): List<RecentDestination> {
-    val visits = groupingBy { it.destinationKey }.eachCount()
-    return asReversed()
-        .distinctBy { it.destinationKey }
-        .take(limit)
-        .map { RecentDestination(it, visits.getValue(it.destinationKey)) }
-}
-
-data class RecentDestination(val card: TripCard, val visits: Int)
-
-/** 트립 한 번이 남기는 카드. 저장 여부와 무관하게 자동으로 쌓이고, 원하는 카드만 저장한다. */
 @Serializable
 data class TripCard(
+    val tripId: Long,
+    /** 화면용 일련번호. */
     val number: Int,
-    val date: String,
-    val startMillis: Long,
-    val minutes: Int,
-    val distanceKm: Float?,
-    val light: Light,
-    /** 안전운전 점수. 차량 속도를 읽지 못해 측정하지 못했으면 null. */
-    val safety: Int?,
-    val placeName: String?,
-    /** 처음 간 길인지. 위치를 쓰지 않아 판정하지 못했으면 null. */
-    val newPlace: Boolean?,
-    val dayNumber: Int,
-    /** 목적지 구역 표시(약 200m 구역 해시). 위치를 쓰지 않았으면 null. */
-    val placeCell: String? = null,
-    /** 출발지·도착지가 처음 이어진 길인지. */
-    val newRoute: Boolean = false,
-    val driveXpToday: Int = 0,
-    val highlights: List<String> = emptyList(),
-    val saved: Boolean = false,
-    val mpGained: Int = 0,
+    val state: CardState = CardState.DRAFT,
+    val createdAt: Long,
+    val completedAt: Long? = null,
+    val purpose: TripPurpose? = null,
+    /** 누구랑(선택). */
+    val companion: work.integro.carling.game.Companion? = null,
+    val tags: List<String> = emptyList(),
+    /** '기타'를 고르고 직접 적은 목적(예: 병원). 없으면 null. */
+    val customPurpose: String? = null,
+    val remindedAt: Long? = null,
+    val expiredAt: Long? = null,
 ) {
-    val title: String get() = placeName ?: if (newPlace == true) "처음 달린 길" else "함께 달린 길"
+    fun clock(trip: TripRecord?): CardClock = CardClock(state, trip?.confirmedAt, remindedAt)
 
-    /** 같은 목적지를 묶는 기준. 위치를 쓰지 않은 트립은 목적지를 몰라 묶지 않는다. */
-    val destinationKey: String get() = placeCell ?: "trip-$number"
+    /** 화면에 보이는 목적 이름: 직접 적은 목적이 있으면 그것. */
+    val purposeLabel: String? get() = customPurpose ?: purpose?.label
 }
+
+@Serializable
+data class Reward(val grantedAt: Long, val gp: Int, val boxId: Int?)
+
+@Serializable
+data class LuckyBox(
+    val boxId: Int,
+    val tripId: Long,
+    /** 상자 생성 시 확정. 다시 뽑을 수 없다. */
+    val bonusGp: Int,
+    val badge: Badge? = null,
+    /** 자동차 꾸미기. 이전 버전의 carItem 값은 읽지 않는다. */
+    val part: CarPart? = null,
+    val createdAt: Long,
+    val openedAt: Long? = null,
+    /** 차체 색. */
+    val color: CarColor? = null,
+)
+
+/** 개성이 바뀔 때마다 남기는 근거(FR-10). */
+@Serializable
+data class PersonalitySnapshot(
+    val id: Int,
+    val createdAt: Long,
+    val tripIds: List<Long>,
+    val bucketCounts: Map<TimeBucket, Int>,
+    val purposeCounts: Map<TripPurpose, Int>,
+    val avgScore: Int?,
+    val before: Personality,
+    val after: Personality,
+    /** 바뀐 축을 한 줄로. */
+    val line: String,
+)
+
+@Serializable
+data class StageChange(val at: Long, val from: Stage, val to: Stage)
+
+/** 베타 지표용 로컬 로그. 자동 실행·자동 기록은 활성 행동으로 세지 않는다. */
+@Serializable
+data class EventLog(val at: Long, val type: String, val ref: Long? = null)
+
+/** 주유(내연기관)·충전(전기차) 한 번. 남은 양이 [fromPercent]에서 [toPercent]로 늘었다. */
+@Serializable
+data class Refuel(val at: Long, val ev: Boolean, val fromPercent: Int, val toPercent: Int, val simulated: Boolean = false)
+
+/** 저장된 월간 리포트: 그달 '꼭 알아야 할 3가지'와 요약 숫자. 만든 뒤에는 바뀌지 않는다. */
+@kotlinx.serialization.Serializable
+data class MonthReport(
+    val month: String,
+    val createdAt: Long,
+    val insights: List<work.integro.carling.game.Insight>,
+    val trips: Int,
+    val km: Float,
+    val minutes: Int,
+)

@@ -7,8 +7,7 @@ import android.car.hardware.property.CarPropertyManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.util.Log
-import work.integro.carling.game.GrowthRules
-import kotlin.math.abs
+import work.integro.carling.game.Rules
 
 private const val TAG = "SpeedMonitor"
 
@@ -16,9 +15,8 @@ private const val TAG = "SpeedMonitor"
 const val CAR_SPEED_PERMISSION = "android.car.permission.CAR_SPEED"
 
 /**
- * 차속으로 급가속·급감속 횟수를 센다 — '부드러운 운전 칭찬'용.
- * Vehicle SDK에 속도가 없어 AAOS 표준 CarPropertyManager를 쓴다.
- * 점수를 깎는 데는 쓰지 않는다(칭찬만).
+ * 차속으로 급가속·급감속 횟수를 센다. 트립 안전 점수의 재료다.
+ * 급조작과 실제 이동시간을 함께 잰다. Vehicle SDK에 속도가 없어 AAOS 표준 CarPropertyManager를 쓴다.
  */
 class SpeedMonitor(private val context: Context) {
 
@@ -28,6 +26,22 @@ class SpeedMonitor(private val context: Context) {
     private var lastSpeed: Float? = null
     private var lastNanos: Long = 0
     private var inHarsh = false
+
+    /** 이번 운행의 실제 이동시간(초). 공회전·정차 시간은 빠진다. */
+    @Volatile
+    private var moving = 0f
+
+    /** 실제 이동시간. 차속을 구독하지 못했으면 null. */
+    val movingSeconds: Long?
+        get() = if (manager != null) moving.toLong() else null
+
+    /** 지금 속도(km/h). 받지 못했으면 null. */
+    val speedKmh: Float? get() = lastSpeed?.times(3.6f)
+
+    /** 마지막 급조작 시각(System.currentTimeMillis). */
+    @Volatile
+    var lastHarshAt: Long? = null
+        private set
 
     /** 현재 주행에서 감지한 급조작 횟수. 차속을 못 받으면 null. */
     @Volatile
@@ -42,14 +56,17 @@ class SpeedMonitor(private val context: Context) {
             if (prev != null && nanos > lastNanos) {
                 val seconds = (nanos - lastNanos) / 1e9f
                 if (seconds >= 0.5f) {
-                    val perSecond = abs(speed - prev) / seconds
-                    val harsh = perSecond >= GrowthRules.HARSH_DELTA_MPS
+                    val perSecond = (speed - prev) / seconds
+                    // 급가속 +3.0 m/s² 이상, 급감속 −3.5 m/s² 이하 (PRD 4.4)
+                    val harsh = perSecond >= Rules.HARSH_ACCEL_MPS2 || perSecond <= Rules.HARSH_BRAKE_MPS2
                     // 이어지는 급가속/급감속은 한 번으로 센다
                     if (harsh && !inHarsh) {
                         harshEvents = (harshEvents ?: 0) + 1
+                        lastHarshAt = System.currentTimeMillis()
                         Log.i(TAG, "급조작 감지: %.1f m/s² (%.1f → %.1f m/s)".format(perSecond, prev, speed))
                     }
                     inHarsh = harsh
+                    if (prev > Rules.MOVING_MPS || speed > Rules.MOVING_MPS) moving += seconds
                     lastSpeed = speed
                     lastNanos = nanos
                 }
@@ -83,11 +100,21 @@ class SpeedMonitor(private val context: Context) {
         lastSpeed = null
         inHarsh = false
         harshEvents = if (manager != null) 0 else null
+        moving = 0f
+    }
+
+    /** 저장된 이동시간부터 이어 센다(앱이 다시 떴거나, 짧은 정차 뒤 같은 여정으로 다시 출발). [harsh]를 알면 급조작 수도 이어 센다. */
+    fun resumeTrip(movingSeconds: Long, harsh: Int? = null) {
+        lastSpeed = null
+        inHarsh = false
+        moving = movingSeconds.toFloat()
+        if (harsh != null && manager != null) harshEvents = harsh
     }
 
     /** 주행 종료 후에는 다음 주행 전까지 카운트를 비워 둔다 (복구된 주행은 판정하지 않도록). */
     fun endTrip() {
         harshEvents = null
+        moving = 0f
     }
 
     fun stop() {

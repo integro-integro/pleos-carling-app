@@ -1,43 +1,38 @@
-# 카링 (CARLING)
+# 마이카링 (My Carling)
 
-차를 탈수록, 나를 닮아 자라는 차 안의 친구 — Pleos Connect 차량용 펫 육성 앱.
+매일의 운행이 트립카드로 남고, 완성한 카드가 카링의 성장·개성과 운행 리포트로 돌아오는 Pleos Connect 차량 동반자 앱.
 
-- 기능별 개발 가능 여부와 구현 현황: [docs/feature-feasibility.md](docs/feature-feasibility.md)
-- 처음부터 끝까지 테스트하는 순서: [docs/test-guide.md](docs/test-guide.md)
+- 구현 명세와 확인이 필요한 것: [docs/carling-world-spec.md](docs/carling-world-spec.md)
+- 테스트 순서: [docs/test-guide.md](docs/test-guide.md)
+- SDK 조사 기록: [docs/feature-feasibility.md](docs/feature-feasibility.md)
 
-## 주요 기능 (v0.3.0)
+## 주요 기능
 
-- **첫 5분:** 알 깨우기 → 성격(나른/도도/루미) → 짧은 질문 2개 → 이름 짓기 → 자라는 방법 안내 → 위치 사용 동의
-- **캐릭터:** 설계서 디자인(토끼 귀, 머리 새싹, 반투명하게 빛나는 몸)을 벡터로 그림. 밤하늘 테마. 정차 화면의 빈 공간을 마음대로 돌아다님 (`ui/Wander.kt`, 주행 중에는 움직이지 않음)
-  - 행동 8종: 휘어진 길로 걷기, 달리기, 큰 점프, 지그재그, 빙글 돌기, 두리번거리기, 몸 흔들기, 낮잠
-  - 성격별 성향: 도도는 활발(달리기·점프), 나른은 느긋(낮잠·천천히), 루미는 차분(걷기·두리번)
-  - 누르면 폴짝 뛰며 하트와 한마디 (친밀도 +1, 하루 5회까지) / 빠르게 세 번 누르면 어지러워함
-- **주행/정차 모드:** P단이 아니면 터치 없는 작은 위젯과 한 줄만 표시 (`distractionOptimized`)
-- **주행 기록:** 기어 P→D→P를 주행 1회로 기록하고, 주차하면 도착 리포트를 보여줌. 주행 도중 앱이 종료돼도 이어서 기록
-- **자동 시작:** 시동(부팅) 때 앱이 스스로 깨어나 포그라운드 서비스로 대기함. 카링 화면을 열지 않아도 그날 주행이 기록됨 (`trip/BootReceiver.kt`, `trip/TripService.kt`)
-- **부드러운 운전 칭찬:** 급가속·급감속이 없던 주행에만 칭찬 (감점 없음)
-- **세로 창 대응:** Pleos에서 앱 두 개를 나란히 띄우면 세로 배치로 바뀜
-- **성장:** 함께한 날 7일이면 성장, 30일이면 첫 진화 (빛 4종 × 길 2종 = 8갈래)
-  - 빛: 시동 시각(새벽/햇살/노을/별빛)
-  - 길: NaviHelper 위치로 처음 간 곳과 다시 찾은 곳을 판정 (격자 해시만 저장)
-- **돌보기:** 친밀도, 포만감, 하루 1회 밥, 충전하면 포만감 회복, 첫 드라이브 모자, 추억 카드
-- **보상 이유 설명:** "노을빛 시간에 29번이나 같이 달려서 제 몸에 노을빛이 번졌어요!"
+- **트립카드:** 1km·3분 이상 달리고 P로 바꾸면 임시 카드가 바로 뜬다. 운행 목적 하나를 고르면 완성. 5분 안에 다시 출발하면 같은 여정, P 5분 유지면 확정
+- **보상 1회:** 운행 확정 + 카드 완성 시 성장 포인트(10+km+분, 최대 150)와 럭키박스. 같은 운행에는 한 번만
+- **카링 성장:** 젤리알 → 깨어난 알 → 아기카링 → 산들카링 → 마이카링, 단계마다 카링과 차가 함께 자란다
+- **개성:** 최근 카드 10장으로 몸 색(시간대)·장식(목적)·심장빛(운전점수), 바뀐 근거를 보여준다
+- **럭키박스:** 보너스 포인트, 수집 배지 6종, 자동차 꾸미기 아이템 8종
+- **레벨·엠블럼:** 성장 포인트로 LV.1~50, 카링 머리 위 엠블럼이 10레벨마다 화려해진다
+- **젤리 상점:** 카드·럭키박스로 모은 젤리로 꾸미기·색·배경 테마 구매(친구 초대는 준비 중)
+- **내 카링:** 장착 슬롯 6칸과 보관함, 미리보기(차 타기/내리기·장착 전), 360°
+- **주행 한마디:** 급조작·배터리 부족·과속·장시간 운전 때 카링이 짧게 말한다(차량 TTS)
+- **성장 리포트:** 지난 기간과 비교한 변화, 똑똑해진 정도(목적 맞히기·습관), 새로 열린 기능
+- **운행 리포트:** 주·월·분기·년 기간, 핵심 발견, 운행 현황과 증감, 내 운전 개선 비교, 내 활동 반경(거리 고리, 위치 동의 시 동네 지도), 날마다 달린 거리, 목적별 운행, 연비·아낀 금액·주유, 지금 차량 상태, 운행일지(QR로 내 메일)
+- **안전:** 주행 중엔 달리는 카링과 거리·시간만. 경로·위치는 저장하지 않음
 
 ## 실행 방법
 
-1. Pleos Connect Emulator(v2.1.0, API 34) AVD를 실행한다. 반드시 Cold boot로 켠다.
-2. 빌드하고 설치한다. JDK 17 이상이 필요하다 (Android Studio 내장 JDK 사용 가능).
+1. Pleos Connect Emulator(v2.1.0, API 34) AVD를 Cold boot로 켠다.
+2. JDK 17로 빌드하고 설치한다.
    ```bash
-   ./gradlew installDebug
+   JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew installDebug
    ```
-3. 차량 상태는 Pleos Connect Virtual Console로 조작한다.
+3. 차량 상태는 Virtual Console로 조작한다.
    ```bash
    adb forward tcp:8088 tcp:8088
    ```
-   브라우저에서 http://127.0.0.1:8088/ 을 열고 Emulation Controls로 들어간다.
-   - Motion > Gear Selection: P / D 전환
-   - Energy > Charge Port / Charge Switch: 충전
-4. 첫 실행 때 "차량 속도 읽기" 권한을 허용한다 (부드러운 운전 칭찬용).
+   브라우저에서 http://127.0.0.1:8088/ 을 열고 Gear Selection에서 P / D를 바꾼다.
 
 ### 공모전 제출용 release APK
 ```bash
@@ -46,28 +41,23 @@
 `apk/팀명_CARLING_release.apk`가 만들어진다. 서명하려면 프로젝트 루트에 `keystore.properties`와 `keystore/carling-release.jks`가 있어야 한다. 이 두 파일은 커밋하지 않으며, **잃어버리면 같은 앱으로 업데이트할 수 없으니 따로 백업한다.**
 
 ### 데모용 개발자 도구 (debug 빌드 전용)
-홈 화면 왼쪽 위의 🛠를 누르면 열린다.
-- 빛·길을 고른 뒤 **가상 주행 +1일 / +6일 / 30일까지**를 누르면 진화까지 바로 볼 수 있다.
-- **다음 날로**는 주행 없이 날짜만 넘긴다. **처음부터**는 모든 데이터를 초기화한다.
+홈 화면 오른쪽 위 🛠. 여기서 만든 운행에는 '시뮬레이션'이 표시된다.
 
 ## 구조
 
 | 파일 | 역할 |
 |---|---|
-| `CarlingApplication.kt` | 차량 신호와 주행 기록을 앱 전체 범위에서 유지 |
-| `vehicle/VehicleSignals.kt` | Vehicle SDK: 기어, 충전구, 충전 스위치, SOC, 주행거리 |
-| `vehicle/SpeedMonitor.kt` | AAOS `PERF_VEHICLE_SPEED`: 급가속·급감속 횟수 |
-| `navi/NaviPlaces.kt` | NaviHelper SDK: 주행 종료 위치를 격자 해시로 변환, 목적지 이름 |
-| `trip/TripTracker.kt` | P→D→P를 주행 1회로 묶음, 충전 세션 감지 |
-| `game/Growth.kt` | 빛·길·성장 단계·진화 규칙 (순수 함수, 단위 테스트) |
-| `game/GameClock.kt`, `game/DevSimulator.kt` | 시간 건너뛰기, 가상 주행 (데모용) |
-| `data/CarlingStore.kt` | 상태 저장(JSON)과 하루 루틴·주행 보상 규칙 |
-| `ui/CarlingApp.kt` | 화면 흐름 (첫 5분 → 홈), 주행 중 위젯 |
-| `ui/Onboarding.kt` | 알, 성격, 질문 2개, 이름, 성장 안내, 위치 동의 |
-| `ui/HomeScreen.kt` | 홈, 도착 리포트, 추억 카드, 개발자 도구 |
-| `ui/Theme.kt` | 밤하늘 테마, 좁은 창(세로) 판정 |
-| `ui/CarlingCharacter.kt` | 설계서 캐릭터 벡터 그림 (정식 일러스트로 교체 가능) |
-| `voice/Voice.kt` | 음성 한마디 (현재 에뮬레이터에서 TTS 초기화 실패, 무음 동작) |
+| `game/Rules.kt` | 수치 상수, 목적·시간대·단계·배지·자동차 아이템, 개성·럭키박스 규칙 |
+| `game/TripCardRules.kt` | 운행·카드 상태, 미완성 카드 재안내·만료, 기본 목적 제안 |
+| `game/Report.kt` | 리포트 집계와 핵심 발견 문장 |
+| `game/Reach.kt`, `geo/` | 활동 반경(거리 고리·집 동네·반경), 행정동 경계와 차량 위치 |
+| `data/CarlingStore.kt` | 운행 기록·병합·확정, 카드 완성, 보상 원장(1회 지급), 단계·개성 갱신 |
+| `trip/TripTracker.kt` | 기어 신호로 기록·주차·재출발·확정, D 화면 실시간 수치 |
+| `vehicle/` | 기어·주행거리, 차속(이동시간·급조작), 주행 제한 |
+| `ui/HomeScreen.kt` | P 홈(카링 탭), 카드 시트·재안내, 단계 연출, 동의, 도움말(`HelpSections`), 시뮬레이터 |
+| `ui/TripCards.kt`, `ui/ReportScreen.kt`, `ui/LuckyBox.kt` | 승차권 카드·시트·목록, 리포트, 럭키박스 |
+| `ui/KaringArt.kt`, `ui/Backdrop.kt`, `ui/CarlingApp.kt` | 카링 그림과 개성 층, 배경, P/D 화면 전환 |
+| `voice/` | 음성 한마디, 옹알이 목소리 |
 
 ## 테스트
 
@@ -78,14 +68,14 @@
 ## 테스트 환경
 
 - Pleos Connect Emulator v2.1.0 (Android 14)
-- Vehicle SDK 2.3.2, NaviHelper SDK 3.0.5
+- Vehicle SDK 2.3.2, TextToSpeech SDK 3.3.1
 - AGP 9.4.1, Gradle 9.6.0, Kotlin 2.2.10, minSdk 28
 
 ## 사용 권한
 
 | 권한 | 용도 |
 |---|---|
-| `pleos.car.permission.CAR_DRIVE` | 기어, 주행거리 |
-| `pleos.car.permission.CAR_ENERGY` | 충전구, 충전 스위치, 배터리 |
-| `pleos.car.permission.NAVI_ROUTE` | 현재 위치, 목적지 정보 |
-| `android.car.permission.CAR_SPEED` | 차속 (런타임 권한) |
+| `pleos.car.permission.CAR_DRIVE`, `CAR_INFO` | 기어, 주행거리 |
+| `pleos.car.permission.TTS_SERVICE` | 음성 한마디 |
+| `android.car.permission.CAR_SPEED` | 실제 이동시간, 급조작 (런타임 권한) |
+| `RECEIVE_BOOT_COMPLETED`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`, `POST_NOTIFICATIONS` | 자동 시작과 상주 서비스 |
